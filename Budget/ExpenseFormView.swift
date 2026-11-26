@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 import UIKit
 
-/// Snel een uitgave toevoegen, of een bestaande bewerken.
+/// Quickly add an expense, or edit an existing one.
 struct ExpenseFormView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
@@ -33,13 +33,13 @@ struct ExpenseFormView: View {
     var body: some View {
         NavigationStack {
             Form {
-                // Bedrag
+                // Amount
                 Section {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text("€")
+                        Text(AppFormat.currencySymbol)
                             .font(.system(size: 34, weight: .semibold, design: .rounded))
                             .foregroundStyle(.secondary)
-                        TextField("0,00", text: $amountText)
+                        TextField(0.0.editableAmount, text: $amountText)
                             .keyboardType(.decimalPad)
                             .font(.system(size: 44, weight: .bold, design: .rounded))
                             .focused($amountFocused)
@@ -47,10 +47,10 @@ struct ExpenseFormView: View {
                     .padding(.vertical, 4)
                 }
 
-                // Categorie
+                // Category
                 Section {
                     if categories.isEmpty {
-                        Text("Maak eerst een categorie aan bij Instellingen.")
+                        Text("Create a category in Settings first.")
                             .foregroundStyle(.secondary)
                     } else {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 76), spacing: 8)], spacing: 8) {
@@ -61,65 +61,65 @@ struct ExpenseFormView: View {
                         .padding(.vertical, 4)
                     }
                 } header: {
-                    Text("Categorie")
+                    Text("Category")
                 }
 
-                // Datum (standaard vandaag)
+                // Date (defaults to today)
                 Section {
                     HStack(spacing: 8) {
-                        dayChip("Vandaag", daysAgo: 0)
-                        dayChip("Gisteren", daysAgo: 1)
+                        dayChip("Today", daysAgo: 0)
+                        dayChip("Yesterday", daysAgo: 1)
                         Spacer(minLength: 4)
-                        DatePicker("Datum", selection: $date, displayedComponents: .date)
+                        DatePicker("Date", selection: $date, displayedComponents: .date)
                             .labelsHidden()
                     }
                 } header: {
-                    Text("Datum")
+                    Text("Date")
                 }
 
-                // Notitie
+                // Note
                 Section {
-                    TextField("Bijv. Albert Heijn", text: $note)
+                    TextField("e.g. Supermarket", text: $note)
                         .submitLabel(.done)
                         .onSubmit { if canSave { save() } }
                 } header: {
-                    Text("Notitie (optioneel)")
+                    Text("Note (optional)")
                 }
 
                 if isEditing {
                     Section {
-                        Button("Verwijder uitgave", role: .destructive) {
+                        Button("Delete expense", role: .destructive) {
                             confirmDelete = true
                         }
                     }
                 }
             }
-            .navigationTitle(isEditing ? "Uitgave bewerken" : "Nieuwe uitgave")
+            .navigationTitle(isEditing ? "Edit expense" : "New expense")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Annuleer") { dismiss() }
+                    Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Bewaar") { save() }
+                    Button("Save") { save() }
                         .fontWeight(.semibold)
                         .disabled(!canSave)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
-                    Button("Gereed") { amountFocused = false }
+                    Button("Done") { amountFocused = false }
                 }
             }
-            .confirmationDialog("Deze uitgave verwijderen?", isPresented: $confirmDelete, titleVisibility: .visible) {
-                Button("Verwijder", role: .destructive) { deleteExpense() }
-                Button("Annuleer", role: .cancel) {}
+            .confirmationDialog("Delete this expense?", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("Delete", role: .destructive) { deleteExpense() }
+                Button("Cancel", role: .cancel) {}
             }
             .task {
                 if selectedCategory == nil {
                     selectedCategory = categories.first { $0.name == lastCategoryName } ?? categories.first
                 }
                 if !isEditing {
-                    // Kleine vertraging zodat het toetsenbord netjes opent na de sheet-animatie.
+                    // Small delay so the keyboard opens cleanly after the sheet animation.
                     try? await Task.sleep(for: .milliseconds(350))
                     amountFocused = true
                 }
@@ -127,7 +127,7 @@ struct ExpenseFormView: View {
         }
     }
 
-    // MARK: - Onderdelen
+    // MARK: - Parts
 
     private func categoryChip(_ category: BudgetCategory) -> some View {
         let isSelected = selectedCategory?.persistentModelID == category.persistentModelID
@@ -173,7 +173,7 @@ struct ExpenseFormView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Acties
+    // MARK: - Actions
 
     private func save() {
         guard let amount, let selectedCategory else { return }

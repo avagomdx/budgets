@@ -24,8 +24,8 @@ struct CategoryDetailView: View {
                 HStack(spacing: 12) {
                     CategoryIcon(category: category, size: 44)
                     VStack(alignment: .leading) {
-                        Text("Uitgegeven").font(.caption).foregroundStyle(.secondary)
-                        Text(spent.euro)
+                        Text("Spent").font(.caption).foregroundStyle(.secondary)
+                        Text(spent.asCurrency)
                             .font(.title2.weight(.bold))
                             .monospacedDigit()
                     }
@@ -35,7 +35,7 @@ struct CategoryDetailView: View {
 
             Section {
                 if items.isEmpty {
-                    Text("Geen uitgaven deze maand")
+                    Text("No expenses this month")
                         .foregroundStyle(.secondary)
                 }
                 ForEach(items) { expense in
@@ -52,7 +52,7 @@ struct CategoryDetailView: View {
                     }
                 }
             } header: {
-                Text("Uitgaven")
+                Text("Expenses")
             }
         }
         .navigationTitle(category.name)

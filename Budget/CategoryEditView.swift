@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 import UIKit
 
-/// Categorie aanmaken of bewerken (naam, budget, kleur, icoon).
+/// Create or edit a category (name, budget, color, icon).
 struct CategoryEditView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
@@ -28,7 +28,7 @@ struct CategoryEditView: View {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// nil = ongeldige invoer; leeg veld = 0 (geen budget)
+    /// nil = invalid input; empty field = 0 (no budget)
     private var budget: Double? {
         let text = budgetText.trimmingCharacters(in: .whitespaces)
         if text.isEmpty { return 0 }
@@ -46,21 +46,21 @@ struct CategoryEditView: View {
             Section {
                 HStack(spacing: 12) {
                     CategoryIcon(icon: icon, color: CategoryPalette.color(named: colorName), size: 44)
-                    TextField("Naam", text: $name)
+                    TextField("Name", text: $name)
                         .font(.title3)
                 }
             }
 
             Section {
                 HStack {
-                    Text("€").foregroundStyle(.secondary)
-                    TextField("Geen budget", text: $budgetText)
+                    Text(AppFormat.currencySymbol).foregroundStyle(.secondary)
+                    TextField("No budget", text: $budgetText)
                         .keyboardType(.decimalPad)
                 }
             } header: {
-                Text("Budget per maand")
+                Text("Monthly budget")
             } footer: {
-                Text("Laat leeg als je voor deze categorie geen budget wilt bijhouden.")
+                Text("Leave empty if you don't want to track a budget for this category.")
             }
 
             Section {
@@ -85,7 +85,7 @@ struct CategoryEditView: View {
                 }
                 .padding(.vertical, 4)
             } header: {
-                Text("Kleur")
+                Text("Color")
             }
 
             Section {
@@ -107,14 +107,14 @@ struct CategoryEditView: View {
                 }
                 .padding(.vertical, 4)
             } header: {
-                Text("Icoon")
+                Text("Icon")
             }
         }
-        .navigationTitle(category == nil ? "Nieuwe categorie" : "Categorie bewerken")
+        .navigationTitle(category == nil ? "New category" : "Edit category")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button("Bewaar") { save() }
+                Button("Save") { save() }
                     .fontWeight(.semibold)
                     .disabled(!canSave)
             }

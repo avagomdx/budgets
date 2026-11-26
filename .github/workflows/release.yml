@@ -1,17 +1,17 @@
-name: Build & publiceer
+name: Build & release
 
-# Start handmatig: tab "Actions" → "Build & publiceer" → "Run workflow".
+# Run manually: Actions tab → "Build & release" → "Run workflow".
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Versienummer (bijv. 1.0.0) — moet hoger zijn dan de vorige"
+        description: "Version number (e.g. 1.0.0), must be higher than the previous one"
         required: true
         default: "1.0.0"
       notes:
-        description: "Wat is er nieuw?"
+        description: "What's new?"
         required: false
-        default: "Nieuwe versie"
+        default: "New version"
 
 permissions:
   contents: write
@@ -33,30 +33,30 @@ jobs:
       GH_TOKEN: ${{ github.token }}
 
     steps:
-      - name: Code ophalen
+      - name: Check out code
         uses: actions/checkout@v4
 
-      - name: Versienummer controleren
+      - name: Validate version number
         run: |
           if ! [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
-            echo "::error::Ongeldig versienummer '$VERSION'. Gebruik bijv. 1.0.0"
+            echo "::error::Invalid version number '$VERSION'. Use e.g. 1.0.0"
             exit 1
           fi
           if gh release view "v$VERSION" >/dev/null 2>&1; then
-            echo "::error::Versie v$VERSION bestaat al. Kies een hoger nummer."
+            echo "::error::Version v$VERSION already exists. Choose a higher number."
             exit 1
           fi
 
-      - name: Xcode-versie
+      - name: Show Xcode version
         run: xcodebuild -version
 
-      - name: XcodeGen installeren
+      - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Xcode-project genereren
+      - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: App bouwen (zonder ondertekening — AltStore ondertekent zelf)
+      - name: Build app (unsigned; AltStore signs it on install)
         run: |
           set -o pipefail
           xcodebuild \
@@ -73,22 +73,22 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             build | tee build.log | grep -E "(error|warning):|\*\* BUILD" || true
           test -d build/Build/Products/Release-iphoneos/Budget.app || {
-            echo "::error::Build mislukt, zie de log hierboven"; tail -n 80 build.log; exit 1; }
+            echo "::error::Build failed, see the log above"; tail -n 80 build.log; exit 1; }
 
-      - name: IPA maken
+      - name: Package IPA
         run: |
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/Budget.app Payload/
           zip -qry Budget.ipa Payload
           ls -lh Budget.ipa
 
-      - name: GitHub Release maken
+      - name: Create GitHub release
         run: |
           gh release create "v$VERSION" Budget.ipa \
             --title "Budget $VERSION" \
             --notes "$NOTES"
 
-      - name: AltStore-source (apps.json) bijwerken
+      - name: Update AltStore source (apps.json)
         run: |
           python3 scripts/update_source.py \
             --repo "$REPO" --branch "$BRANCH" --owner "$OWNER" \
@@ -97,15 +97,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add apps.json
-          git commit -m "AltStore-source: versie $VERSION"
+          git commit -m "AltStore source: version $VERSION"
           git push
 
-      - name: Samenvatting
+      - name: Summary
         run: |
           {
-            echo "### Budget $VERSION gepubliceerd"
+            echo "### Budget $VERSION released"
             echo ""
-            echo "AltStore-source URL:"
+            echo "AltStore source URL:"
             echo ""
             echo "\`https://raw.githubusercontent.com/$REPO/$BRANCH/apps.json\`"
           } >> "$GITHUB_STEP_SUMMARY"

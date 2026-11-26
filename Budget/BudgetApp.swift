@@ -8,7 +8,6 @@ struct BudgetApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environment(\.locale, AppFormat.locale)
         }
         .modelContainer(for: [BudgetCategory.self, Expense.self])
     }
@@ -22,13 +21,13 @@ struct ContentView: View {
     var body: some View {
         TabView {
             OverviewView(showingAdd: $showingAdd)
-                .tabItem { Label("Overzicht", systemImage: "chart.pie.fill") }
+                .tabItem { Label("Overview", systemImage: "chart.pie.fill") }
 
             ExpensesView(showingAdd: $showingAdd)
-                .tabItem { Label("Uitgaven", systemImage: "list.bullet.rectangle") }
+                .tabItem { Label("Expenses", systemImage: "list.bullet.rectangle") }
 
             SettingsView()
-                .tabItem { Label("Instellingen", systemImage: "gearshape") }
+                .tabItem { Label("Settings", systemImage: "gearshape") }
         }
         .sheet(isPresented: $showingAdd) {
             ExpenseFormView()

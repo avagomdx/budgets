@@ -23,7 +23,7 @@ extension CategoryIcon {
     }
 }
 
-/// Maandkiezer: ‹ November 2026 ›  (tik op de maand om terug te gaan naar nu)
+/// Month switcher: ‹ November 2026 ›  (tap the month to jump back to the current month)
 struct MonthSwitcher: View {
     @Binding var month: Date
 
@@ -58,7 +58,7 @@ struct MonthSwitcher: View {
     }
 }
 
-/// Voortgangsbalk voor besteed vs. budget.
+/// Progress bar for spent vs. budget.
 struct BudgetBar: View {
     let spent: Double
     let budget: Double
@@ -73,14 +73,14 @@ struct BudgetBar: View {
                     .tint(isOver ? .red : color)
                 HStack {
                     if isOver {
-                        Text("\((spent - budget).euro) te veel")
+                        Text("\((spent - budget).asCurrency) over")
                             .foregroundStyle(.red)
                     } else {
-                        Text("Nog \((budget - spent).euro)")
+                        Text("\((budget - spent).asCurrency) left")
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Text("van \(budget.euro)")
+                    Text("of \(budget.asCurrency)")
                         .foregroundStyle(.secondary)
                 }
                 .font(.caption)
@@ -92,21 +92,21 @@ struct BudgetBar: View {
 
 struct ExpenseRow: View {
     let expense: Expense
-    /// Toon de datum i.p.v. de categorie als subtitel (handig in categorie-detail).
+    /// Show the date instead of the category as subtitle (useful in category detail).
     var showDate = false
 
     var body: some View {
         HStack(spacing: 12) {
             CategoryIcon(category: expense.category)
             VStack(alignment: .leading, spacing: 2) {
-                Text(expense.note.isEmpty ? (expense.category?.name ?? "Uitgave") : expense.note)
+                Text(expense.note.isEmpty ? (expense.category?.name ?? "Expense") : expense.note)
                     .lineLimit(1)
-                Text(showDate ? expense.date.dayTitle : (expense.category?.name ?? "Zonder categorie"))
+                Text(showDate ? expense.date.dayTitle : (expense.category?.name ?? "No category"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Text(expense.amount.euro)
+            Text(expense.amount.asCurrency)
                 .monospacedDigit()
                 .fontWeight(.medium)
         }
@@ -119,7 +119,7 @@ struct AddExpenseButton: View {
 
     var body: some View {
         Button(action: action) {
-            Label("Uitgave toevoegen", systemImage: "plus")
+            Label("Add expense", systemImage: "plus")
                 .font(.headline)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 4)

@@ -34,7 +34,7 @@ struct OverviewView: View {
                         }
                     }
                 } header: {
-                    Text("Budgetten")
+                    Text("Budgets")
                 }
 
                 if !monthExpenses.isEmpty {
@@ -43,11 +43,11 @@ struct OverviewView: View {
                             ExpenseRow(expense: expense, showDate: true)
                         }
                     } header: {
-                        Text("Laatste uitgaven")
+                        Text("Recent expenses")
                     }
                 }
             }
-            .navigationTitle("Overzicht")
+            .navigationTitle("Overview")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -55,7 +55,7 @@ struct OverviewView: View {
                     } label: {
                         Image(systemName: "plus.circle.fill")
                     }
-                    .accessibilityLabel("Uitgave toevoegen")
+                    .accessibilityLabel("Add expense")
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -82,7 +82,7 @@ private struct SummaryCard: View {
 
     private var remaining: Double { budget - spent }
 
-    /// Wat je nog per dag kunt uitgeven, alleen voor de huidige maand.
+    /// What you can still spend per day; current month only.
     private var perDay: Double? {
         guard month.isSameMonth(as: .now), remaining > 0 else { return nil }
         let calendar = Calendar.current
@@ -94,10 +94,10 @@ private struct SummaryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Uitgegeven")
+            Text("Spent")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Text(spent.euro)
+            Text(spent.asCurrency)
                 .font(.system(size: 36, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .contentTransition(.numericText())
@@ -105,7 +105,7 @@ private struct SummaryCard: View {
             BudgetBar(spent: spent, budget: budget, color: .accentColor)
 
             if let perDay {
-                Label("Ongeveer \(perDay.euro) per dag voor de rest van de maand",
+                Label("About \(perDay.asCurrency) per day for the rest of the month",
                       systemImage: "calendar")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -127,7 +127,7 @@ private struct BudgetRow: View {
                 HStack {
                     Text(category.name)
                     Spacer()
-                    Text(spent.euro)
+                    Text(spent.asCurrency)
                         .monospacedDigit()
                         .fontWeight(.medium)
                         .foregroundStyle(category.monthlyBudget > 0 && spent > category.monthlyBudget ? Color.red : Color.primary)

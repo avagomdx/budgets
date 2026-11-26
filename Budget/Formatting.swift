@@ -1,28 +1,37 @@
 import Foundation
 
 enum AppFormat {
-    static let locale = Locale(identifier: "nl_NL")
-    static let currencyCode = "EUR"
+    /// Follows the device's language and region settings.
+    static var locale: Locale { .autoupdatingCurrent }
+
+    /// Currency of the device's region, falling back to euro.
+    static var currencyCode: String { Locale.current.currency?.identifier ?? "EUR" }
+
+    /// Short symbol for the currency, e.g. "€" or "$".
+    static var currencySymbol: String {
+        let symbol = 0.0.formatted(.currency(code: currencyCode).locale(locale))
+            .filter { !$0.isNumber && $0 != "." && $0 != "," && !$0.isWhitespace }
+        return symbol.isEmpty ? currencyCode : symbol
+    }
 }
 
 extension Double {
-    /// Bijv. "€ 12,50"
-    var euro: String {
+    /// Formatted as currency, e.g. "€12.50"
+    var asCurrency: String {
         formatted(.currency(code: AppFormat.currencyCode).locale(AppFormat.locale))
     }
 
-    /// Bijv. "12,50" — voor in een tekstveld.
+    /// Plain number for a text field, e.g. "12.50"
     var editableAmount: String {
         formatted(.number.precision(.fractionLength(2)).grouping(.never).locale(AppFormat.locale))
     }
 }
 
 extension String {
-    /// Leest "12,50", "12.5" of "€ 12" als bedrag. Geeft nil bij ongeldige invoer of 0.
+    /// Parses "12,50", "12.5" or "€ 12" as an amount. Returns nil for invalid input or 0.
     var parsedAmount: Double? {
         let cleaned = self
-            .replacingOccurrences(of: "€", with: "")
-            .replacingOccurrences(of: " ", with: "")
+            .filter { $0.isNumber || $0 == "," || $0 == "." || $0 == "-" }
             .replacingOccurrences(of: ",", with: ".")
         guard let value = Double(cleaned), value.isFinite, value > 0 else { return nil }
         return (value * 100).rounded() / 100
@@ -42,21 +51,16 @@ extension Date {
         Calendar.current.date(byAdding: .month, value: months, to: self) ?? self
     }
 
-    /// Bijv. "November 2026"
+    /// e.g. "November 2026"
     var monthTitle: String {
         formatted(.dateTime.month(.wide).year().locale(AppFormat.locale)).capitalizedFirst
     }
 
-    /// "Vandaag", "Gisteren" of bijv. "Maandag 23 november"
+    /// "Today", "Yesterday" or e.g. "Monday, November 23"
     var dayTitle: String {
         let calendar = Calendar.current
-        if calendar.isDateInToday(self) { return "Vandaag" }
-        if calendar.isDateInYesterday(self) { return "Gisteren" }
+        if calendar.isDateInToday(self) { return "Today" }
+        if calendar.isDateInYesterday(self) { return "Yesterday" }
         return formatted(.dateTime.weekday(.wide).day().month(.wide).locale(AppFormat.locale)).capitalizedFirst
-    }
-
-    /// Bijv. "23 nov"
-    var shortDay: String {
-        formatted(.dateTime.day().month(.abbreviated).locale(AppFormat.locale))
     }
 }

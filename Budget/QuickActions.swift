@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 import Observation
 
-/// Snelle actie op het beginscherm: houd het app-icoon ingedrukt → "Nieuwe uitgave".
+/// Home Screen quick action: long-press the app icon → "New expense".
 enum QuickActions {
     static let addExpenseType = "budget.add-expense"
 
@@ -11,7 +11,7 @@ enum QuickActions {
         UIApplication.shared.shortcutItems = [
             UIApplicationShortcutItem(
                 type: addExpenseType,
-                localizedTitle: "Nieuwe uitgave",
+                localizedTitle: "New expense",
                 localizedSubtitle: nil,
                 icon: UIApplicationShortcutIcon(systemImageName: "plus.circle"),
                 userInfo: nil
@@ -30,7 +30,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      configurationForConnecting connectingSceneSession: UISceneSession,
                      options: UIScene.ConnectionOptions) -> UISceneConfiguration {
-        // App werd koud gestart via de snelle actie.
+        // App was cold-launched from the quick action.
         if options.shortcutItem?.type == QuickActions.addExpenseType {
             QuickActionState.shared.pendingAdd = true
         }
@@ -41,7 +41,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 }
 
 final class SceneDelegate: NSObject, UIWindowSceneDelegate {
-    // App draaide al op de achtergrond.
+    // App was already running in the background.
     func windowScene(_ windowScene: UIWindowScene,
                      performActionFor shortcutItem: UIApplicationShortcutItem,
                      completionHandler: @escaping (Bool) -> Void) {

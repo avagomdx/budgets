@@ -7,7 +7,7 @@ final class BudgetCategory {
     var name: String = ""
     var icon: String = "tag"
     var colorName: String = "blue"
-    /// Budget per maand in euro. 0 = geen budget.
+    /// Monthly budget. 0 = no budget.
     var monthlyBudget: Double = 0
     var sortOrder: Int = 0
 
@@ -42,7 +42,7 @@ final class Expense {
     }
 }
 
-// MARK: - Kleuren en iconen
+// MARK: - Colors and icons
 
 struct PaletteColor: Identifiable {
     let name: String
@@ -78,7 +78,7 @@ enum CategoryPalette {
     }
 }
 
-// MARK: - Standaardcategorieën bij eerste start
+// MARK: - Default categories on first launch
 
 enum DefaultData {
     @MainActor
@@ -87,12 +87,12 @@ enum DefaultData {
         guard count == 0 else { return }
 
         let defaults: [(name: String, icon: String, color: String, budget: Double)] = [
-            ("Boodschappen", "cart", "green", 400),
-            ("Uit eten", "fork.knife", "orange", 150),
-            ("Vervoer", "car", "blue", 150),
-            ("Vrije tijd", "gamecontroller", "purple", 100),
-            ("Kleding", "tshirt", "pink", 75),
-            ("Overig", "ellipsis.circle", "gray", 100),
+            ("Groceries", "cart", "green", 400),
+            ("Dining out", "fork.knife", "orange", 150),
+            ("Transport", "car", "blue", 150),
+            ("Leisure", "gamecontroller", "purple", 100),
+            ("Clothing", "tshirt", "pink", 75),
+            ("Other", "ellipsis.circle", "gray", 100),
         ]
         for (index, item) in defaults.enumerated() {
             context.insert(BudgetCategory(name: item.name, icon: item.icon, colorName: item.color,

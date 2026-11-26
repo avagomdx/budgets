@@ -1,10 +1,10 @@
-# XcodeGen-configuratie. Het Xcode-project wordt hieruit gegenereerd
-# (lokaal: `brew install xcodegen && xcodegen generate`, in GitHub Actions automatisch).
+# XcodeGen configuration. The Xcode project is generated from this file
+# (locally: `brew install xcodegen && xcodegen generate`; automatically in GitHub Actions).
 name: Budget
 
 options:
   bundleIdPrefix: com.anthony
-  developmentLanguage: nl
+  developmentLanguage: en
   deploymentTarget:
     iOS: "17.0"
 

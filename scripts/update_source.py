@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Maakt of werkt apps.json bij: de AltStore-source voor deze app.
+"""Creates or updates apps.json, the AltStore source for this app.
 
-Wordt automatisch aangeroepen door .github/workflows/release.yml.
-Pas de APP-gegevens hieronder aan als je de naam of beschrijving wilt wijzigen.
+Called automatically by .github/workflows/release.yml.
+Edit the app metadata below to change the name or description.
 """
 import argparse
 import datetime
@@ -10,15 +10,15 @@ import json
 import os
 
 APP_NAME = "Budget"
-BUNDLE_ID = "com.anthony.budget"  # moet gelijk zijn aan PRODUCT_BUNDLE_IDENTIFIER in project.yml
-SUBTITLE = "Persoonlijke budgetten en uitgaven"
+BUNDLE_ID = "com.anthony.budget"  # must match PRODUCT_BUNDLE_IDENTIFIER in project.yml
+SUBTITLE = "Personal budgets and expenses"
 DESCRIPTION = (
-    "Houd je uitgaven bij en blijf binnen je budget.\n\n"
-    "• Budgetten per categorie met voortgangsbalk\n"
-    "• Snel een uitgave invoeren, datum standaard vandaag\n"
-    "• Overzicht per maand en per dag\n"
-    "• Export naar CSV\n\n"
-    "Alle gegevens blijven op je iPhone."
+    "Track your spending and stay within budget.\n\n"
+    "• Budgets per category with progress bars\n"
+    "• Quick expense entry, date defaults to today\n"
+    "• Monthly and daily overviews\n"
+    "• CSV export\n\n"
+    "All data stays on your iPhone."
 )
 TINT = "#239E6B"
 MIN_OS = "17.0"
@@ -28,7 +28,7 @@ SOURCE_FILE = "apps.json"
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--repo", required=True, help="eigenaar/repo")
+    parser.add_argument("--repo", required=True, help="owner/repo")
     parser.add_argument("--branch", default="main")
     parser.add_argument("--owner", required=True)
     parser.add_argument("--version", required=True)
@@ -76,12 +76,12 @@ def main() -> None:
         "version": args.version,
         "buildVersion": str(args.build),
         "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "localizedDescription": args.notes or "Nieuwe versie",
+        "localizedDescription": args.notes or "New version",
         "downloadURL": download_url,
         "size": os.path.getsize(args.ipa),
         "minOSVersion": MIN_OS,
     }
-    # Nieuwste versie bovenaan (AltStore neemt de eerste als laatste versie).
+    # Newest version first (AltStore treats the first entry as the latest).
     versions = [v for v in app.get("versions", []) if v.get("version") != args.version]
     app["versions"] = ([new_version] + versions)[:KEEP_VERSIONS]
 
@@ -89,7 +89,7 @@ def main() -> None:
         json.dump(source, f, indent=2, ensure_ascii=False)
         f.write("\n")
 
-    print(f"{SOURCE_FILE} bijgewerkt naar versie {args.version} (build {args.build})")
+    print(f"Updated {SOURCE_FILE} to version {args.version} (build {args.build})")
 
 
 if __name__ == "__main__":

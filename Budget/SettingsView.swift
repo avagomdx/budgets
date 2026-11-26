@@ -31,7 +31,7 @@ struct SettingsView: View {
                                 CategoryIcon(category: category)
                                 Text(category.name)
                                 Spacer()
-                                Text(category.monthlyBudget > 0 ? category.monthlyBudget.euro : "Geen budget")
+                                Text(category.monthlyBudget > 0 ? category.monthlyBudget.asCurrency : "No budget")
                                     .foregroundStyle(.secondary)
                                     .monospacedDigit()
                             }
@@ -47,49 +47,49 @@ struct SettingsView: View {
                     NavigationLink {
                         CategoryEditView(category: nil)
                     } label: {
-                        Label("Categorie toevoegen", systemImage: "plus")
+                        Label("Add category", systemImage: "plus")
                     }
                 } header: {
-                    Text("Categorieën en budgetten")
+                    Text("Categories and budgets")
                 } footer: {
-                    Text("Totaal budget per maand: \(totalBudget.euro). Veeg naar links om te verwijderen, of tik op Wijzig om de volgorde aan te passen.")
+                    Text("Total monthly budget: \(totalBudget.asCurrency). Swipe left to delete, or tap Edit to reorder.")
                 }
 
                 Section {
                     ShareLink(item: CSVExport(csv: makeCSV()),
-                              preview: SharePreview("uitgaven.csv")) {
-                        Label("Exporteer uitgaven (CSV)", systemImage: "square.and.arrow.up")
+                              preview: SharePreview("expenses.csv")) {
+                        Label("Export expenses (CSV)", systemImage: "square.and.arrow.up")
                     }
                     .disabled(expenses.isEmpty)
                 } header: {
-                    Text("Gegevens")
+                    Text("Data")
                 } footer: {
-                    Text("Je gegevens staan alleen op deze iPhone. Exporteer af en toe als back-up, want als je de app verwijdert ben je ze kwijt.")
+                    Text("Your data is stored only on this iPhone. Export it now and then as a backup: deleting the app deletes your data.")
                 }
 
                 Section {
-                    LabeledContent("Versie", value: appVersion)
-                    LabeledContent("Aantal uitgaven", value: "\(expenses.count)")
+                    LabeledContent("Version", value: appVersion)
+                    LabeledContent("Expenses recorded", value: "\(expenses.count)")
                 }
             }
-            .navigationTitle("Instellingen")
+            .navigationTitle("Settings")
             .toolbar {
                 EditButton()
             }
-            .alert("Categorie verwijderen?",
+            .alert("Delete category?",
                    isPresented: Binding(get: { pendingDelete != nil },
                                         set: { if !$0 { pendingDelete = nil } }),
                    presenting: pendingDelete) { category in
-                Button("Verwijder", role: .destructive) {
+                Button("Delete", role: .destructive) {
                     context.delete(category)
                     try? context.save()
                     pendingDelete = nil
                 }
-                Button("Annuleer", role: .cancel) {
+                Button("Cancel", role: .cancel) {
                     pendingDelete = nil
                 }
             } message: { category in
-                Text("\"\(category.name)\" en alle \(category.expenses?.count ?? 0) uitgaven in deze categorie worden verwijderd.")
+                Text("\"\(category.name)\" and all \(category.expenses?.count ?? 0) expenses in this category will be deleted.")
             }
         }
     }
@@ -103,20 +103,21 @@ struct SettingsView: View {
         try? context.save()
     }
 
-    /// CSV met puntkomma's en komma-decimalen, zodat Nederlandse Excel/Numbers het direct goed opent.
+    /// CSV export. Uses ";" when the device uses a decimal comma, so Excel/Numbers open it correctly.
     private func makeCSV() -> String {
         func field(_ value: String) -> String {
             "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
         }
+        let separator = AppFormat.locale.decimalSeparator == "," ? ";" : ","
         let dateStyle = Date.ISO8601FormatStyle(timeZone: .current).year().month().day()
-        var lines = ["Datum;Bedrag;Categorie;Notitie"]
+        var lines = [["Date", "Amount", "Category", "Note"].joined(separator: separator)]
         for expense in expenses {
             lines.append([
                 expense.date.formatted(dateStyle),
                 expense.amount.editableAmount,
                 field(expense.category?.name ?? ""),
                 field(expense.note),
-            ].joined(separator: ";"))
+            ].joined(separator: separator))
         }
         return "\u{FEFF}" + lines.joined(separator: "\n")
     }
@@ -127,7 +128,7 @@ struct CSVExport: Transferable {
 
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(exportedContentType: .commaSeparatedText) { export in
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("uitgaven.csv")
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("expenses.csv")
             try export.csv.write(to: url, atomically: true, encoding: .utf8)
             return SentTransferredFile(url)
         }

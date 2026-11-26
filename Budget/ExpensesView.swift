@@ -32,13 +32,13 @@ struct ExpensesView: View {
     }
 
     private var emptyTitle: String {
-        searchText.isEmpty ? "Geen uitgaven" : "Niets gevonden"
+        searchText.isEmpty ? "No expenses" : "No results"
     }
 
     private var emptyMessage: String {
         searchText.isEmpty
-            ? "Er zijn nog geen uitgaven in \(month.monthTitle.lowercased())."
-            : "Probeer een andere zoekterm."
+            ? "There are no expenses in \(month.monthTitle) yet."
+            : "Try a different search term."
     }
 
     var body: some View {
@@ -78,14 +78,14 @@ struct ExpensesView: View {
                         HStack {
                             Text(group.day.dayTitle)
                             Spacer()
-                            Text(group.total.euro).monospacedDigit()
+                            Text(group.total.asCurrency).monospacedDigit()
                         }
                         .textCase(nil)
                     }
                 }
             }
-            .navigationTitle("Uitgaven")
-            .searchable(text: $searchText, prompt: "Zoek op notitie of categorie")
+            .navigationTitle("Expenses")
+            .searchable(text: $searchText, prompt: "Search notes or categories")
             .sheet(item: $editing) { expense in
                 ExpenseFormView(expense: expense)
             }
