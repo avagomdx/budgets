@@ -10,6 +10,15 @@
       "bundleIdentifier": "com.anthony.budget",
       "versions": [
         {
+          "version": "1.2.1",
+          "buildVersion": "7",
+          "date": "2026-11-27T16:51:57Z",
+          "localizedDescription": "New version",
+          "downloadURL": "https://github.com/avagomdx/budgets/releases/download/v1.2.1/Budget.ipa",
+          "size": 1087538,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "1.2",
           "buildVersion": "6",
           "date": "2026-11-27T15:30:31Z",
