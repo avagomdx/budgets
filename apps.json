@@ -1,0 +1,35 @@
+{
+  "name": "avagomdx's apps",
+  "identifier": "io.github.avagomdx.source",
+  "sourceURL": "https://raw.githubusercontent.com/avagomdx/budgets/main/apps.json",
+  "iconURL": "https://raw.githubusercontent.com/avagomdx/budgets/main/icon.png",
+  "tintColor": "#239E6B",
+  "news": [],
+  "apps": [
+    {
+      "bundleIdentifier": "com.anthony.budget",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "buildVersion": "2",
+          "date": "2026-11-26T15:26:37Z",
+          "localizedDescription": "New version",
+          "downloadURL": "https://github.com/avagomdx/budgets/releases/download/v1.0.0/Budget.ipa",
+          "size": 103917,
+          "minOSVersion": "17.0"
+        }
+      ],
+      "name": "Budget",
+      "developerName": "avagomdx",
+      "subtitle": "Personal budgets and expenses",
+      "localizedDescription": "Track your spending and stay within budget.\n\n• Budgets per category with progress bars\n• Quick expense entry, date defaults to today\n• Monthly and daily overviews\n• CSV export\n\nAll data stays on your iPhone.",
+      "iconURL": "https://raw.githubusercontent.com/avagomdx/budgets/main/icon.png",
+      "tintColor": "#239E6B",
+      "category": "utilities",
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {}
+      }
+    }
+  ]
+}
