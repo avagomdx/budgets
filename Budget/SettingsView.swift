@@ -18,6 +18,7 @@ struct SettingsView: View {
     @State private var confirmingReset = false
     @State private var shareFile: ShareFile?
     @State private var importing = false
+    @State private var pickedBackupURL: URL?
     @State private var pendingRestore: BackupFile?
     @State private var errorMessage: String?
 
@@ -120,8 +121,16 @@ struct SettingsView: View {
             .sheet(item: $shareFile) { file in
                 ActivityView(items: [file.url])
             }
-            .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
-                handleImport(result)
+            .sheet(isPresented: $importing, onDismiss: {
+                if let url = pickedBackupURL {
+                    pickedBackupURL = nil
+                    readBackup(from: url)
+                }
+            }) {
+                DocumentPicker(contentTypes: [.json]) { url in
+                    pickedBackupURL = url
+                }
+                .ignoresSafeArea()
             }
             .alert("Restore backup?",
                    isPresented: Binding(get: { pendingRestore != nil },
@@ -194,20 +203,12 @@ struct SettingsView: View {
         }
     }
 
-    private func handleImport(_ result: Result<URL, Error>) {
-        switch result {
-        case .success(let url):
-            let hasAccess = url.startAccessingSecurityScopedResource()
-            defer {
-                if hasAccess { url.stopAccessingSecurityScopedResource() }
-            }
-            do {
-                let data = try Data(contentsOf: url)
-                pendingRestore = try BackupManager.decode(data)
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        case .failure(let error):
+    private func readBackup(from url: URL) {
+        do {
+            let data = try Data(contentsOf: url)
+            try? FileManager.default.removeItem(at: url)  // the picker gave us a temporary copy
+            pendingRestore = try BackupManager.decode(data)
+        } catch {
             errorMessage = error.localizedDescription
         }
     }

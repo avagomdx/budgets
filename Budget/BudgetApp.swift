@@ -33,12 +33,32 @@ struct BudgetApp: App {
 struct RootView: View {
     static let setupKey = "didCompleteSetupV2"
     @AppStorage(RootView.setupKey) private var didCompleteSetup = false
+    @Environment(\.modelContext) private var context
+    @State private var bankMessage: String?
 
     var body: some View {
-        if didCompleteSetup {
-            MainView()
-        } else {
-            SetupWizardView()
+        Group {
+            if didCompleteSetup {
+                MainView()
+            } else {
+                SetupWizardView()
+            }
+        }
+        .onOpenURL { url in
+            guard BankLink.isCallback(url) else { return }
+            Task {
+                do {
+                    bankMessage = try await BankLink.handleCallback(url, context: context)
+                } catch {
+                    bankMessage = error.localizedDescription
+                }
+            }
+        }
+        .alert("Bank connection",
+               isPresented: Binding(get: { bankMessage != nil }, set: { if !$0 { bankMessage = nil } })) {
+            Button("OK", role: .cancel) { bankMessage = nil }
+        } message: {
+            Text(bankMessage ?? "")
         }
     }
 }
@@ -48,7 +68,6 @@ struct MainView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \BudgetPeriod.startDate) private var periods: [BudgetPeriod]
     @State private var showingAdd = false
-    @State private var bankMessage: String?
 
     /// The current period, if its check-in hasn't been done yet.
     private var periodNeedingCheckIn: BudgetPeriod? {
@@ -80,22 +99,6 @@ struct MainView: View {
                 showingAdd = true
                 QuickActionState.shared.pendingAdd = false
             }
-        }
-        .onOpenURL { url in
-            guard BankLink.isCallback(url) else { return }
-            Task {
-                do {
-                    bankMessage = try await BankLink.handleCallback(url, context: context)
-                } catch {
-                    bankMessage = error.localizedDescription
-                }
-            }
-        }
-        .alert("Bank connection",
-               isPresented: Binding(get: { bankMessage != nil }, set: { if !$0 { bankMessage = nil } })) {
-            Button("OK", role: .cancel) { bankMessage = nil }
-        } message: {
-            Text(bankMessage ?? "")
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {

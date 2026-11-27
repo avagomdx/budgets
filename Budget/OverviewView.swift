@@ -8,8 +8,17 @@ struct OverviewView: View {
     @Query(sort: \BudgetCategory.sortOrder) private var categories: [BudgetCategory]
     @Query(sort: \Expense.date, order: .reverse) private var expenses: [Expense]
     @Query(sort: \BudgetPeriod.startDate) private var periods: [BudgetPeriod]
+    @Query private var bankConnections: [BankConnection]
+    @AppStorage("bankPromptDismissed") private var bankPromptDismissed = false
     @State private var selectedPeriodID: PersistentIdentifier?
     @State private var confirmingEarlyStart = false
+    @State private var showingBankSetup = false
+    @State private var showingFixedImport = false
+    @State private var showingTransactionImport = false
+
+    private var hasBankConnection: Bool {
+        bankConnections.contains { $0.isValid }
+    }
 
     var body: some View {
         let period = PeriodManager.resolve(selectedPeriodID, in: periods)
@@ -18,6 +27,10 @@ struct OverviewView: View {
             List {
                 Section {
                     PeriodSwitcher(periods: periods, selectedID: $selectedPeriodID)
+                }
+
+                if bankConnections.isEmpty && !bankPromptDismissed {
+                    bankPrompt
                 }
 
                 if let period {
@@ -37,6 +50,26 @@ struct OverviewView: View {
                             Label("Salary came early", systemImage: "forward.end")
                         }
                         .disabled(!canStartEarly)
+
+                        Section {
+                            if hasBankConnection {
+                                Button {
+                                    showingTransactionImport = true
+                                } label: {
+                                    Label("Import transactions from bank", systemImage: "square.and.arrow.down")
+                                }
+                                Button {
+                                    showingFixedImport = true
+                                } label: {
+                                    Label("Import fixed costs from bank", systemImage: "repeat")
+                                }
+                            }
+                            Button {
+                                showingBankSetup = true
+                            } label: {
+                                Label("Bank connections", systemImage: "building.columns")
+                            }
+                        }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
@@ -57,9 +90,41 @@ struct OverviewView: View {
             } message: {
                 Text("The current period ends yesterday, and a new period starts today with a check-in. Expenses from today onwards count for the new period.")
             }
+            .navigationDestination(isPresented: $showingBankSetup) {
+                BankSettingsView()
+            }
+            .navigationDestination(isPresented: $showingFixedImport) {
+                FixedCostImportView()
+            }
+            .navigationDestination(isPresented: $showingTransactionImport) {
+                TransactionImportView()
+            }
             .safeAreaInset(edge: .bottom) {
                 AddExpenseButton { showingAdd = true }
             }
+        }
+    }
+
+    private var bankPrompt: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Connect your bank", systemImage: "building.columns")
+                    .font(.headline)
+                Text("Import your fixed costs and transactions from ABN AMRO, Revolut and other banks, instead of typing them in.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Button("Set up") {
+                        showingBankSetup = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button("Not now") {
+                        bankPromptDismissed = true
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(.vertical, 4)
         }
     }
 

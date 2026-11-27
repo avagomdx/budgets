@@ -92,12 +92,23 @@ enum MerchantKey {
 
 struct RecurringSuggestion: Identifiable {
     let id: String
+    /// Merchant key (shared by payments with the same name).
+    let merchantKey: String
     var name: String
     let amount: Double
     let frequency: CostFrequency
     let count: Int
     let lastDate: Date
     let amountVaries: Bool
+}
+
+/// One merchant you paid, for picking fixed costs by hand.
+struct MerchantSummary: Identifiable {
+    let id: String
+    let name: String
+    let lastAmount: Double
+    let count: Int
+    let lastDate: Date
 }
 
 enum RecurringDetector {
@@ -110,46 +121,101 @@ enum RecurringDetector {
         var suggestions: [RecurringSuggestion] = []
         for (key, items) in groups where !key.isEmpty && items.count >= 2 {
             let sorted = items.sorted { $0.date < $1.date }
-            var intervals: [Int] = []
-            for index in 1..<sorted.count {
-                let days = calendar.dateComponents([.day], from: sorted[index - 1].date, to: sorted[index].date).day ?? 0
-                if days > 0 { intervals.append(days) }
-            }
-            guard !intervals.isEmpty else { continue }
-            let interval = median(intervals.map(Double.init))
 
-            let frequency: CostFrequency
-            if (6...8).contains(interval) && sorted.count >= 3 {
-                frequency = .weekly
-            } else if (25...35).contains(interval) && intervals.allSatisfy({ (20...40).contains($0) }) {
-                frequency = .monthly
-            } else if (85...95).contains(interval) {
-                frequency = .quarterly
-            } else {
+            // How many payments to this name are there in a typical month?
+            let byMonth = Dictionary(grouping: sorted) { calendar.dateComponents([.year, .month], from: $0.date) }
+            let perMonth = Int(median(byMonth.values.map { Double($0.count) }).rounded())
+
+            if let whole = classify(sorted, now: now), whole.frequency == .weekly || perMonth < 2 {
+                suggestions.append(suggestion(id: key, key: key, items: sorted, result: whole, suffix: ""))
                 continue
             }
 
-            // Still active: the last payment isn't much longer ago than the usual interval.
-            guard let last = sorted.last else { continue }
-            let daysSinceLast = calendar.dateComponents([.day], from: last.date, to: now).day ?? 0
-            guard Double(daysSinceLast) <= interval * 1.5 + 10 else { continue }
-
-            let amounts = sorted.map(\.amount)
-            let typical = median(amounts)
-            guard typical > 0 else { continue }
-            let spread = ((amounts.max() ?? typical) - (amounts.min() ?? typical)) / typical
-
-            suggestions.append(RecurringSuggestion(
-                id: key,
-                name: mostCommonName(in: sorted),
-                amount: (typical * 100).rounded() / 100,
-                frequency: frequency,
-                count: sorted.count,
-                lastDate: last.date,
-                amountVaries: spread > 0.15
-            ))
+            // Several payments with the same name each month (e.g. a mortgage in two parts):
+            // split them by size into separate series. Frequent shops (4+ a month) are skipped.
+            guard (2...3).contains(perMonth) else { continue }
+            var series: [[FetchedTransaction]] = Array(repeating: [], count: perMonth)
+            for monthItems in byMonth.values {
+                let bySize = monthItems.sorted { $0.amount > $1.amount }
+                for (index, item) in bySize.enumerated() {
+                    series[min(index, perMonth - 1)].append(item)
+                }
+            }
+            for (index, part) in series.enumerated() where part.count >= 2 {
+                let partSorted = part.sorted { $0.date < $1.date }
+                guard let result = classify(partSorted, now: now), result.spread <= 0.25 else { continue }
+                suggestions.append(suggestion(id: "\(key)#\(index + 1)", key: key, items: partSorted,
+                                              result: result, suffix: " (\(index + 1))"))
+            }
         }
         return suggestions.sorted { $0.amount > $1.amount }
+    }
+
+    private struct Classification {
+        let frequency: CostFrequency
+        let amount: Double
+        let spread: Double
+    }
+
+    private static func classify(_ sorted: [FetchedTransaction], now: Date) -> Classification? {
+        let calendar = Calendar.current
+        var intervals: [Double] = []
+        for index in 1..<sorted.count {
+            let days = calendar.dateComponents([.day], from: sorted[index - 1].date, to: sorted[index].date).day ?? 0
+            if days > 0 { intervals.append(Double(days)) }
+        }
+        guard !intervals.isEmpty else { return nil }
+        let interval = median(intervals)
+
+        let frequency: CostFrequency
+        if (6...8).contains(interval) && sorted.count >= 3 {
+            frequency = .weekly
+        } else if (25...35).contains(interval) {
+            // Allow the odd skipped month (an interval of about two months).
+            let regular = intervals.filter { (20...40).contains($0) || (50...70).contains($0) }.count
+            guard Double(regular) >= 0.7 * Double(intervals.count) else { return nil }
+            frequency = .monthly
+        } else if (85...95).contains(interval) {
+            frequency = .quarterly
+        } else {
+            return nil
+        }
+
+        // Still active: the last payment isn't much longer ago than the usual interval.
+        guard let last = sorted.last else { return nil }
+        let daysSinceLast = calendar.dateComponents([.day], from: last.date, to: now).day ?? 0
+        guard Double(daysSinceLast) <= interval * 1.5 + 10 else { return nil }
+
+        let amounts = sorted.map(\.amount)
+        let typical = median(amounts)
+        guard typical > 0 else { return nil }
+        let spread = ((amounts.max() ?? typical) - (amounts.min() ?? typical)) / typical
+        return Classification(frequency: frequency, amount: (typical * 100).rounded() / 100, spread: spread)
+    }
+
+    private static func suggestion(id: String, key: String, items: [FetchedTransaction],
+                                   result: Classification, suffix: String) -> RecurringSuggestion {
+        RecurringSuggestion(id: id,
+                            merchantKey: key,
+                            name: mostCommonName(in: items) + suffix,
+                            amount: result.amount,
+                            frequency: result.frequency,
+                            count: items.count,
+                            lastDate: items.last?.date ?? .now,
+                            amountVaries: result.spread > 0.15)
+    }
+
+    /// Every merchant you paid, most recent first (for adding a fixed cost by hand).
+    static func merchants(_ transactions: [FetchedTransaction], ownIBANs: Set<String>) -> [MerchantSummary] {
+        let debits = transactions.filter { $0.isDebit && !ownIBANs.contains($0.counterpartyIBAN) }
+        let groups = Dictionary(grouping: debits) { $0.merchantKey.isEmpty ? $0.counterparty : $0.merchantKey }
+        return groups.compactMap { entry -> MerchantSummary? in
+            let items = entry.value
+            guard let last = items.max(by: { $0.date < $1.date }) else { return nil }
+            return MerchantSummary(id: entry.key, name: mostCommonName(in: items), lastAmount: last.amount,
+                                   count: items.count, lastDate: last.date)
+        }
+        .sorted { $0.lastDate > $1.lastDate }
     }
 
     static func median(_ values: [Double]) -> Double {

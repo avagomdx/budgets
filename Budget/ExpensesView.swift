@@ -10,6 +10,8 @@ struct ExpensesView: View {
     @State private var selectedPeriodID: PersistentIdentifier?
     @State private var editing: Expense?
     @State private var searchText = ""
+    @State private var showingImport = false
+    @Query private var bankConnections: [BankConnection]
 
     private struct DayGroup: Identifiable {
         let day: Date
@@ -88,6 +90,20 @@ struct ExpensesView: View {
                 }
             }
             .navigationTitle("Expenses")
+            .toolbar {
+                if bankConnections.contains(where: { $0.isValid }) {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            showingImport = true
+                        } label: {
+                            Label("Import from bank", systemImage: "square.and.arrow.down")
+                        }
+                    }
+                }
+            }
+            .navigationDestination(isPresented: $showingImport) {
+                TransactionImportView()
+            }
             .searchable(text: $searchText, prompt: "Search notes or categories")
             .sheet(item: $editing) { expense in
                 ExpenseFormView(expense: expense)

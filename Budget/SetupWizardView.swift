@@ -43,14 +43,16 @@ struct DraftCategory: Identifiable {
 struct SetupWizardView: View {
     @Environment(\.modelContext) private var context
     @AppStorage(RootView.setupKey) private var didCompleteSetup = false
+    @Query private var bankConnections: [BankConnection]
 
     private enum Step: Int, CaseIterable {
-        case welcome, payday, income, fixedCosts, budgets, summary
+        case welcome, payday, bank, income, fixedCosts, budgets, summary
 
         var title: String {
             switch self {
             case .welcome: return "Welcome"
             case .payday: return "Pay day"
+            case .bank: return "Your bank"
             case .income: return "Net income"
             case .fixedCosts: return "Fixed costs"
             case .budgets: return "Budgets"
@@ -68,6 +70,11 @@ struct SetupWizardView: View {
     }
     @State private var editingCostID: UUID?
     @State private var showingOverBudgetAlert = false
+    @State private var showingBankImport = false
+
+    private var hasBankConnection: Bool {
+        bankConnections.contains { $0.isValid }
+    }
 
     // MARK: Totals
 
@@ -120,6 +127,18 @@ struct SetupWizardView: View {
                                             set: { if !$0 { editingCostID = nil } })) {
                     costSheet
                 }
+                .sheet(isPresented: $showingBankImport) {
+                    NavigationStack {
+                        FixedCostImportView { drafts in
+                            fixedCosts.append(contentsOf: drafts)
+                        }
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Cancel") { showingBankImport = false }
+                            }
+                        }
+                    }
+                }
                 .alert("More than your income", isPresented: $showingOverBudgetAlert) {
                     Button("Finish anyway") { finish() }
                     Button("Go back", role: .cancel) {}
@@ -134,6 +153,7 @@ struct SetupWizardView: View {
         switch step {
         case .welcome: welcomeStep
         case .payday: paydayStep
+        case .bank: bankStep
         case .income: incomeStep
         case .fixedCosts: fixedCostsStep
         case .budgets: budgetsStep
@@ -153,7 +173,7 @@ struct SetupWizardView: View {
                 move(by: 1)
             }
         } label: {
-            Text(step == .welcome ? "Get started" : (step == .summary ? "Finish setup" : "Next"))
+            Text(bottomButtonTitle)
                 .font(.headline)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 4)
@@ -162,6 +182,15 @@ struct SetupWizardView: View {
         .controlSize(.large)
         .padding(.horizontal)
         .padding(.bottom, 8)
+    }
+
+    private var bottomButtonTitle: String {
+        switch step {
+        case .welcome: return "Get started"
+        case .summary: return "Finish setup"
+        case .bank: return hasBankConnection ? "Next" : "Skip for now"
+        default: return "Next"
+        }
     }
 
     private func move(by offset: Int) {
@@ -188,6 +217,7 @@ struct SetupWizardView: View {
 
                 VStack(alignment: .leading, spacing: 14) {
                     Label("When your salary arrives, so your periods run from payday to payday", systemImage: "calendar")
+                    Label("Optionally your bank, to import fixed costs and transactions", systemImage: "building.columns")
                     Label("Your net income per period", systemImage: "arrow.down.circle")
                     Label("Your fixed costs and savings", systemImage: "house")
                     Label("Budgets for your day-to-day spending", systemImage: "chart.pie")
@@ -238,6 +268,17 @@ struct SetupWizardView: View {
             } header: {
                 Text("Preview")
             }
+        }
+    }
+
+    private var bankStep: some View {
+        Form {
+            Section {
+                Text("Connect ABN AMRO, Revolut or another bank to import your fixed costs and transactions instead of typing them in. This is optional: you can skip it and do it later in Settings.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            BankSetupSections()
         }
     }
 
@@ -292,6 +333,18 @@ struct SetupWizardView: View {
 
     private var fixedCostsStep: some View {
         Form {
+            if hasBankConnection {
+                Section {
+                    Button {
+                        showingBankImport = true
+                    } label: {
+                        Label("Import from your bank", systemImage: "building.columns")
+                    }
+                } footer: {
+                    Text("Finds recurring payments in the last six months. You choose which ones to add.")
+                }
+            }
+
             Section {
                 if fixedCosts.isEmpty {
                     Text("No fixed costs yet. Pick some from the suggestions below, or add your own.")

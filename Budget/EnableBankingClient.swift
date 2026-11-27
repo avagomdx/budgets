@@ -10,7 +10,11 @@ enum BankSettings {
     static let keychainAccount = "enable-banking-private-key"
 
     static var appID: String {
-        UserDefaults.standard.string(forKey: appIDKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var value = UserDefaults.standard.string(forKey: appIDKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if value.lowercased().hasSuffix(".pem") {
+            value = String(value.dropLast(4))
+        }
+        return value
     }
 
     static var redirectURL: String {

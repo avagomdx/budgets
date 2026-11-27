@@ -1,10 +1,12 @@
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
+import UIKit
 
-// MARK: - Settings → Bank connections
+// MARK: - Bank setup (used in Settings and in the setup wizard)
 
-struct BankSettingsView: View {
+/// "Enable Banking app" and "Banks" sections. Put inside a List or Form.
+struct BankSetupSections: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \BankConnection.createdAt) private var connections: [BankConnection]
 
@@ -13,7 +15,143 @@ struct BankSettingsView: View {
 
     @State private var hasKey = BankSettings.hasPrivateKey
     @State private var importingKey = false
+    @State private var pickedKeyURL: URL?
     @State private var message: String?
+
+    private var isReady: Bool {
+        !appID.trimmingCharacters(in: .whitespaces).isEmpty && hasKey
+    }
+
+    var body: some View {
+        Section {
+            Link(destination: URL(string: "https://enablebanking.com")!) {
+                Label("Open Enable Banking", systemImage: "safari")
+            }
+
+            Button {
+                importingKey = true
+            } label: {
+                HStack {
+                    Label(hasKey ? "Private key imported" : "Import private key (.pem)", systemImage: "key")
+                    Spacer()
+                    if hasKey {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    }
+                }
+            }
+
+            TextField("Application ID", text: $appID)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .font(.system(.footnote, design: .monospaced))
+
+            TextField(BankSettings.defaultRedirectURL, text: $redirectURL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+                .font(.footnote)
+        } header: {
+            Text("Step 1 · Enable Banking app")
+        } footer: {
+            Text("Register a free Production app at Enable Banking and link your own accounts there. Then import the .pem file it gives you; the application ID is filled in from the file name. The key stays in this iPhone's keychain. Leave the redirect URL empty to use the default.")
+        }
+        .sheet(isPresented: $importingKey, onDismiss: {
+            if let url = pickedKeyURL {
+                pickedKeyURL = nil
+                importKey(from: url)
+            }
+        }) {
+            DocumentPicker(contentTypes: [.item]) { url in
+                pickedKeyURL = url
+            }
+            .ignoresSafeArea()
+        }
+        .alert("Bank connections",
+               isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+            Button("OK", role: .cancel) { message = nil }
+        } message: {
+            Text(message ?? "")
+        }
+
+        Section {
+            ForEach(connections) { connection in
+                connectionRow(connection)
+            }
+            .onDelete { offsets in
+                for index in offsets {
+                    context.delete(connections[index])
+                }
+                try? context.save()
+            }
+
+            NavigationLink {
+                BankPickerView()
+            } label: {
+                Label(connections.isEmpty ? "Connect a bank" : "Connect another bank", systemImage: "plus")
+            }
+            .disabled(!isReady)
+        } header: {
+            Text("Step 2 · Your banks")
+        } footer: {
+            Text(isReady
+                 ? "Your bank's login opens in Safari and sends you back here. Access lasts 90–180 days; after that, connect the bank again."
+                 : "Finish step 1 first.")
+        }
+    }
+
+    private func connectionRow(_ connection: BankConnection) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(connection.bankName).font(.headline)
+                Spacer()
+                if connection.isValid {
+                    Text("Until \(connection.validUntil.formatted(date: .abbreviated, time: .omitted))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Expired, reconnect")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+            ForEach(connection.accounts ?? []) { account in
+                Text(account.iban.isEmpty ? account.displayName : "\(account.displayName) · \(account.iban)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func importKey(from url: URL) {
+        do {
+            let data = try Data(contentsOf: url)
+            try? FileManager.default.removeItem(at: url)  // the picker gave us a temporary copy
+            guard let pem = String(data: data, encoding: .utf8) else {
+                throw BankError.invalidKey("the file isn't text.")
+            }
+            _ = try PrivateKeyLoader.secKey(fromPEM: pem)  // check it's usable before saving
+            try Keychain.save(Data(pem.utf8), account: BankSettings.keychainAccount)
+            hasKey = true
+
+            // Enable Banking names the file after the application ID.
+            let fileName = url.deletingPathExtension().lastPathComponent
+            var text = "Private key imported."
+            if UUID(uuidString: fileName) != nil {
+                appID = fileName
+                text += " The application ID was filled in from the file name."
+            }
+            message = text + " You can delete the .pem file from Files now."
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+}
+
+// MARK: - Settings → Bank connections
+
+struct BankSettingsView: View {
+    @Query private var connections: [BankConnection]
 
     private var hasValidConnection: Bool {
         connections.contains { $0.isValid }
@@ -21,87 +159,7 @@ struct BankSettingsView: View {
 
     var body: some View {
         List {
-            Section {
-                TextField("Application ID", text: $appID)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .font(.system(.body, design: .monospaced))
-
-                Button {
-                    importingKey = true
-                } label: {
-                    HStack {
-                        Label(hasKey ? "Replace private key (.pem)" : "Import private key (.pem)",
-                              systemImage: "key")
-                        Spacer()
-                        if hasKey {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                        }
-                    }
-                }
-
-                TextField(BankSettings.defaultRedirectURL, text: $redirectURL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
-                    .font(.footnote)
-            } header: {
-                Text("Enable Banking app")
-            } footer: {
-                Text("Use the application ID and the .pem file from your Enable Banking control panel. The key is stored in this iPhone's keychain and never leaves it, except to sign requests to Enable Banking. Leave the redirect URL empty to use the default; it must match the one registered in Enable Banking.")
-            }
-
-            Section {
-                if connections.isEmpty {
-                    Text("No banks connected yet.")
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(connections) { connection in
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(connection.bankName).font(.headline)
-                            Spacer()
-                            if connection.isValid {
-                                Text("Until \(connection.validUntil.formatted(date: .abbreviated, time: .omitted))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                Text("Expired, reconnect")
-                                    .font(.caption)
-                                    .foregroundStyle(.red)
-                            }
-                        }
-                        ForEach(connection.accounts ?? []) { account in
-                            Text(account.iban.isEmpty ? account.displayName : "\(account.displayName) · \(account.iban)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        if let synced = connection.lastSyncedAt {
-                            Text("Last import: \(synced.formatted(date: .abbreviated, time: .shortened))")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .onDelete { offsets in
-                    for index in offsets {
-                        context.delete(connections[index])
-                    }
-                    try? context.save()
-                }
-
-                NavigationLink {
-                    BankPickerView()
-                } label: {
-                    Label("Connect a bank", systemImage: "plus")
-                }
-                .disabled(appID.trimmingCharacters(in: .whitespaces).isEmpty || !hasKey)
-            } header: {
-                Text("Banks")
-            } footer: {
-                Text("Banks only allow access for a limited time (usually 90 or 180 days). After that, connect the bank again.")
-            }
+            BankSetupSections()
 
             Section {
                 NavigationLink {
@@ -112,50 +170,17 @@ struct BankSettingsView: View {
                 NavigationLink {
                     TransactionImportView()
                 } label: {
-                    Label("Import all transactions", systemImage: "list.bullet.rectangle")
+                    Label("Import transactions", systemImage: "list.bullet.rectangle")
                 }
             } header: {
-                Text("Import")
+                Text("Step 3 · Import")
             } footer: {
-                Text("Fixed costs: finds recurring payments in the last six months and adds them as default fixed costs. All transactions: adds your payments as expenses, after you've reviewed them.")
+                Text("Fixed costs: finds recurring payments in the last six months. Transactions: adds your payments as expenses after you've reviewed them. You can also start both from the ⋯ menu on the Overview.")
             }
             .disabled(!hasValidConnection)
         }
         .navigationTitle("Bank connections")
         .navigationBarTitleDisplayMode(.inline)
-        .fileImporter(isPresented: $importingKey, allowedContentTypes: [.item]) { result in
-            importKey(result)
-        }
-        .alert("Bank connections",
-               isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
-            Button("OK", role: .cancel) { message = nil }
-        } message: {
-            Text(message ?? "")
-        }
-    }
-
-    private func importKey(_ result: Result<URL, Error>) {
-        switch result {
-        case .success(let url):
-            let hasAccess = url.startAccessingSecurityScopedResource()
-            defer {
-                if hasAccess { url.stopAccessingSecurityScopedResource() }
-            }
-            do {
-                let data = try Data(contentsOf: url)
-                guard let pem = String(data: data, encoding: .utf8) else {
-                    throw BankError.invalidKey("the file isn't text.")
-                }
-                _ = try PrivateKeyLoader.secKey(fromPEM: pem)  // check it's usable before saving
-                try Keychain.save(Data(pem.utf8), account: BankSettings.keychainAccount)
-                hasKey = true
-                message = "Private key imported. You can delete the .pem file from Files now."
-            } catch {
-                message = error.localizedDescription
-            }
-        case .failure(let error):
-            message = error.localizedDescription
-        }
     }
 }
 
@@ -302,37 +327,59 @@ struct CategoryMenu: View {
     }
 }
 
-// MARK: - Import: fixed costs only
+// MARK: - Import: fixed costs
+
+struct FixedCostImportRow: Identifiable {
+    let id: String
+    var include: Bool
+    var name: String
+    var amountText: String
+    var frequency: CostFrequency
+    var category: BudgetCategory?
+    var isSavings: Bool
+    var anchorDate: Date
+    let info: String
+    let warning: Bool
+    let alreadyExists: Bool
+
+    var isValid: Bool {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && amountText.parsedAmount != nil
+    }
+}
 
 struct FixedCostImportView: View {
+    /// Set by the setup wizard: selected items are handed back as drafts instead of being saved.
+    var onAddDrafts: (([DraftFixedCost]) -> Void)? = nil
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @Query(sort: \BudgetCategory.sortOrder) private var categories: [BudgetCategory]
     @Query(sort: \FixedCostTemplate.sortOrder) private var templates: [FixedCostTemplate]
     @Query(sort: \BudgetPeriod.startDate) private var periods: [BudgetPeriod]
 
-    private struct Row: Identifiable {
-        var suggestion: RecurringSuggestion
-        var include: Bool
-        var category: BudgetCategory?
-        var isSavings: Bool
-        let alreadyExists: Bool
-        var id: String { suggestion.id }
-    }
-
-    @State private var rows: [Row] = []
+    @State private var rows: [FixedCostImportRow] = []
+    @State private var merchants: [MerchantSummary] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var addToCurrentPeriod = true
     @State private var resultMessage: String?
+    @State private var showingMerchants = false
 
-    private var selectedCount: Int { rows.filter(\.include).count }
+    private var isWizard: Bool { onAddDrafts != nil }
+
+    private var selectedCount: Int {
+        rows.filter { $0.include && $0.isValid }.count
+    }
 
     private var addButtonTitle: String {
         selectedCount == 1 ? "Add 1 fixed cost" : "Add \(selectedCount) fixed costs"
     }
 
     var body: some View {
+        let newIndices = rows.indices.filter { !rows[$0].alreadyExists }
+        let existingIndices = rows.indices.filter { rows[$0].alreadyExists }
+        let allNewSelected = newIndices.allSatisfy { rows[$0].include }
+
         List {
             if isLoading {
                 HStack {
@@ -341,52 +388,63 @@ struct FixedCostImportView: View {
                 }
             } else if let errorMessage {
                 Text(errorMessage).foregroundStyle(.red)
-            } else if rows.isEmpty {
-                ContentUnavailableView("No recurring payments found", systemImage: "repeat",
-                                       description: Text("Nothing in the last six months looks like a weekly, monthly or quarterly payment."))
-                    .listRowBackground(Color.clear)
             } else {
                 Section {
-                    ForEach($rows) { $row in
-                        HStack(alignment: .top, spacing: 10) {
-                            Button {
-                                row.include.toggle()
-                            } label: {
-                                Image(systemName: row.include ? "checkmark.circle.fill" : "circle")
-                                    .font(.title3)
-                                    .foregroundStyle(row.include ? Color.accentColor : Color.secondary)
-                            }
-                            .buttonStyle(.borderless)
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                TextField("Name", text: $row.suggestion.name)
-                                    .font(.body)
-                                Text(details(for: row))
-                                    .font(.caption)
-                                    .foregroundStyle(row.alreadyExists || row.suggestion.amountVaries ? Color.orange : Color.secondary)
-                                HStack {
-                                    CategoryMenu(categories: categories, selection: $row.category)
-                                    Spacer()
-                                    Toggle("Savings", isOn: $row.isSavings)
-                                        .toggleStyle(.button)
-                                        .font(.caption)
-                                }
-                            }
-
-                            Text(row.suggestion.amount.asCurrency)
-                                .monospacedDigit()
-                                .fontWeight(.medium)
-                        }
-                        .padding(.vertical, 2)
-                    }
-                } header: {
-                    Text("Recurring payments")
-                } footer: {
-                    Text("Ticked items are added to your default fixed costs. Amounts that vary are shown as a typical (median) amount.")
+                    Text("Tick the payments you want as fixed costs. Tap a name or amount to change it, and pick how often it's charged.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section {
-                    Toggle("Also add them to the current period", isOn: $addToCurrentPeriod)
+                    if newIndices.isEmpty {
+                        Text("No new recurring payments found.")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(newIndices, id: \.self) { index in
+                        FixedCostImportRowView(row: $rows[index], categories: categories, showsCategory: !isWizard)
+                    }
+                } header: {
+                    HStack {
+                        Text("Found (\(newIndices.count))")
+                        Spacer()
+                        if !newIndices.isEmpty {
+                            Button(allNewSelected ? "Deselect all" : "Select all") {
+                                for index in newIndices {
+                                    rows[index].include = !allNewSelected
+                                }
+                            }
+                            .font(.caption)
+                            .textCase(nil)
+                        }
+                    }
+                }
+
+                Section {
+                    Button {
+                        showingMerchants = true
+                    } label: {
+                        Label("Add a payment that's missing", systemImage: "plus.circle")
+                    }
+                } footer: {
+                    Text("Choose any payment from your bank and add it as a fixed cost.")
+                }
+
+                if !existingIndices.isEmpty {
+                    Section {
+                        ForEach(existingIndices, id: \.self) { index in
+                            FixedCostImportRowView(row: $rows[index], categories: categories, showsCategory: !isWizard)
+                        }
+                    } header: {
+                        Text("Already in your fixed costs")
+                    } footer: {
+                        Text("These match fixed costs you already have, so they're not ticked. Tick one only if it's really a separate cost.")
+                    }
+                }
+
+                if !isWizard {
+                    Section {
+                        Toggle("Also add them to the current period", isOn: $addToCurrentPeriod)
+                    }
                 }
             }
         }
@@ -409,6 +467,13 @@ struct FixedCostImportView: View {
                 .padding(.bottom, 8)
             }
         }
+        .sheet(isPresented: $showingMerchants) {
+            NavigationStack {
+                MerchantPickerView(merchants: merchants) { merchant in
+                    addManual(merchant)
+                }
+            }
+        }
         .task {
             await load()
         }
@@ -423,14 +488,6 @@ struct FixedCostImportView: View {
         }
     }
 
-    private func details(for row: Row) -> String {
-        var parts = ["\(row.suggestion.frequency.title)", "\(row.suggestion.count)×",
-                     "last \(row.suggestion.lastDate.formatted(.dateTime.day().month(.abbreviated)))"]
-        if row.suggestion.amountVaries { parts.append("amount varies") }
-        if row.alreadyExists { parts.append("already in your fixed costs") }
-        return parts.joined(separator: " · ")
-    }
-
     private func load() async {
         isLoading = true
         defer { isLoading = false }
@@ -438,35 +495,89 @@ struct FixedCostImportView: View {
             let from = Calendar.current.date(byAdding: .day, value: -185, to: .now) ?? .now
             let fetched = try await BankLink.fetchTransactions(context: context, from: from)
             let suggestions = RecurringDetector.detect(fetched.transactions, ownIBANs: fetched.ownIBANs)
-            let existingKeys = Set(templates.map { MerchantKey.make($0.name) })
+            merchants = RecurringDetector.merchants(fetched.transactions, ownIBANs: fetched.ownIBANs)
+
             rows = suggestions.map { suggestion in
-                let exists = existingKeys.contains(suggestion.id)
-                    || templates.contains { $0.name.localizedCaseInsensitiveCompare(suggestion.name) == .orderedSame }
-                return Row(suggestion: suggestion,
-                           include: !exists && !suggestion.amountVaries,
-                           category: nil,
-                           isSavings: false,
-                           alreadyExists: exists)
+                let exists = alreadyExists(suggestion)
+                var info = "\(suggestion.count)× in 6 months · last \(suggestion.lastDate.formatted(.dateTime.day().month(.abbreviated)))"
+                if suggestion.amountVaries {
+                    info += " · amount varies, typical amount shown"
+                }
+                // Irregular amounts with only a few payments are often shops, not fixed costs.
+                let likelyFixed = !suggestion.amountVaries || suggestion.count >= 5
+                return FixedCostImportRow(id: suggestion.id,
+                                          include: !exists && likelyFixed,
+                                          name: suggestion.name,
+                                          amountText: suggestion.amount.editableAmount,
+                                          frequency: suggestion.frequency,
+                                          category: nil,
+                                          isSavings: false,
+                                          anchorDate: suggestion.lastDate,
+                                          info: info,
+                                          warning: suggestion.amountVaries,
+                                          alreadyExists: exists)
             }
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
+    /// Same merchant and a similar amount as a fixed cost you already have.
+    private func alreadyExists(_ suggestion: RecurringSuggestion) -> Bool {
+        if isWizard { return false }
+        return templates.contains { template in
+            if template.name.localizedCaseInsensitiveCompare(suggestion.name) == .orderedSame { return true }
+            guard MerchantKey.make(template.name) == suggestion.merchantKey else { return false }
+            return abs(template.amount - suggestion.amount) <= max(2, suggestion.amount * 0.25)
+        }
+    }
+
+    private func addManual(_ merchant: MerchantSummary) {
+        let id = "manual-" + merchant.id
+        if let index = rows.firstIndex(where: { $0.id == id }) {
+            rows[index].include = true
+            return
+        }
+        rows.append(FixedCostImportRow(id: id,
+                                       include: true,
+                                       name: merchant.name,
+                                       amountText: merchant.lastAmount.editableAmount,
+                                       frequency: .monthly,
+                                       category: nil,
+                                       isSavings: false,
+                                       anchorDate: merchant.lastDate,
+                                       info: "Added by you · last paid \(merchant.lastDate.formatted(.dateTime.day().month(.abbreviated)))",
+                                       warning: false,
+                                       alreadyExists: false))
+    }
+
     private func addSelected() {
+        let chosen = rows.filter { $0.include && $0.isValid }
+
+        if let onAddDrafts {
+            let drafts = chosen.map { row in
+                DraftFixedCost(name: row.name.trimmingCharacters(in: .whitespacesAndNewlines),
+                               amountText: row.amountText,
+                               frequency: row.frequency,
+                               mode: .whenDue,
+                               anchorDate: row.anchorDate,
+                               isSavings: row.isSavings)
+            }
+            onAddDrafts(drafts)
+            dismiss()
+            return
+        }
+
         var order = (templates.map(\.sortOrder).max() ?? -1) + 1
-        var added = 0
-        for row in rows where row.include {
-            let name = row.suggestion.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else { continue }
-            let template = FixedCostTemplate(name: name, amount: row.suggestion.amount,
-                                             frequency: row.suggestion.frequency, mode: .whenDue,
-                                             anchorDate: row.suggestion.lastDate, isSavings: row.isSavings,
+        for row in chosen {
+            let template = FixedCostTemplate(name: row.name.trimmingCharacters(in: .whitespacesAndNewlines),
+                                             amount: row.amountText.parsedAmount ?? 0,
+                                             frequency: row.frequency, mode: .whenDue,
+                                             anchorDate: row.anchorDate, isSavings: row.isSavings,
                                              sortOrder: order)
             context.insert(template)
             template.category = row.category
             order += 1
-            added += 1
         }
         try? context.save()
 
@@ -475,7 +586,125 @@ struct FixedCostImportView: View {
             let count = PeriodManager.addMissingDefaultFixedCosts(to: current, context: context)
             periodNote = " \(count) of them were added to the current period."
         }
+        let added = chosen.count
         resultMessage = "Added \(added) fixed \(added == 1 ? "cost" : "costs") to your defaults." + periodNote
+    }
+}
+
+struct FixedCostImportRowView: View {
+    @Binding var row: FixedCostImportRow
+    let categories: [BudgetCategory]
+    let showsCategory: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Button {
+                row.include.toggle()
+            } label: {
+                Image(systemName: row.include ? "checkmark.circle.fill" : "circle")
+                    .font(.title2)
+                    .foregroundStyle(row.include ? Color.accentColor : Color.secondary)
+            }
+            .buttonStyle(.borderless)
+
+            VStack(alignment: .leading, spacing: 8) {
+                TextField("Name", text: $row.name)
+                    .font(.headline)
+
+                HStack(spacing: 8) {
+                    AmountField(placeholder: "0.00", text: $row.amountText)
+                        .frame(width: 120)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(Color(uiColor: .tertiarySystemFill),
+                                    in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                    Menu {
+                        Picker("How often", selection: $row.frequency) {
+                            ForEach(CostFrequency.allCases) { item in
+                                Text(item.title).tag(item)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(row.frequency.title)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.caption2)
+                        }
+                        .font(.subheadline)
+                    }
+                }
+
+                Text(row.info)
+                    .font(.caption)
+                    .foregroundStyle(row.warning ? Color.orange : Color.secondary)
+
+                HStack {
+                    if showsCategory {
+                        CategoryMenu(categories: categories, selection: $row.category)
+                    }
+                    Spacer()
+                    Toggle("Savings", isOn: $row.isSavings)
+                        .toggleStyle(.button)
+                        .font(.caption)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .opacity(row.include ? 1 : 0.7)
+    }
+}
+
+/// Every payment you made, to add a missing fixed cost by hand.
+struct MerchantPickerView: View {
+    let merchants: [MerchantSummary]
+    let onPick: (MerchantSummary) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+
+    private var filtered: [MerchantSummary] {
+        let query = searchText.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return merchants }
+        return merchants.filter { $0.name.localizedCaseInsensitiveContains(query) }
+    }
+
+    var body: some View {
+        List {
+            if merchants.isEmpty {
+                Text("No payments found.").foregroundStyle(.secondary)
+            }
+            ForEach(filtered) { merchant in
+                Button {
+                    onPick(merchant)
+                    dismiss()
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(merchant.name)
+                                .foregroundStyle(.primary)
+                            Text("\(merchant.count)× · last \(merchant.lastDate.formatted(.dateTime.day().month(.abbreviated)))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text(merchant.lastAmount.asCurrency)
+                            .monospacedDigit()
+                            .foregroundStyle(.primary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .searchable(text: $searchText, prompt: "Search payments")
+        .navigationTitle("Choose a payment")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { dismiss() }
+            }
+        }
     }
 }
 
@@ -654,7 +883,7 @@ struct TransactionImportView: View {
             }
 
             let fixedKeys = Set(templates.map { MerchantKey.make($0.name) })
-                .union(RecurringDetector.detect(fetched.transactions, ownIBANs: fetched.ownIBANs).map(\.id))
+                .union(RecurringDetector.detect(fetched.transactions, ownIBANs: fetched.ownIBANs).map(\.merchantKey))
 
             var newRows: [Row] = []
             var duplicates = 0

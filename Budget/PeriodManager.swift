@@ -106,7 +106,7 @@ enum PeriodManager {
         ensureCurrentPeriod(context: context, rule: rule)
     }
 
-    /// Deletes everything so the setup wizard can run again.
+    /// Deletes all budget data so the setup wizard can run again. Bank connections are kept.
     static func resetAllData(context: ModelContext) {
         for item in (try? context.fetch(FetchDescriptor<Expense>())) ?? [] { context.delete(item) }
         for item in (try? context.fetch(FetchDescriptor<IncomeEntry>())) ?? [] { context.delete(item) }
@@ -115,8 +115,6 @@ enum PeriodManager {
         for item in (try? context.fetch(FetchDescriptor<BudgetCategory>())) ?? [] { context.delete(item) }
         for item in (try? context.fetch(FetchDescriptor<IncomeSource>())) ?? [] { context.delete(item) }
         for item in (try? context.fetch(FetchDescriptor<FixedCostTemplate>())) ?? [] { context.delete(item) }
-        for item in (try? context.fetch(FetchDescriptor<BankAccountLink>())) ?? [] { context.delete(item) }
-        for item in (try? context.fetch(FetchDescriptor<BankConnection>())) ?? [] { context.delete(item) }
         try? context.save()
     }
 
