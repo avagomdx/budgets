@@ -18,6 +18,12 @@ final class BudgetCategory {
     @Relationship(deleteRule: .cascade, inverse: \Expense.category)
     var expenses: [Expense]? = []
 
+    @Relationship(deleteRule: .nullify, inverse: \FixedCostTemplate.category)
+    var fixedCostTemplates: [FixedCostTemplate]? = []
+
+    @Relationship(deleteRule: .nullify, inverse: \PeriodFixedCost.category)
+    var periodFixedCosts: [PeriodFixedCost]? = []
+
     init(name: String, icon: String, colorName: String, budget: Double, carryOver: Bool = false, sortOrder: Int) {
         self.name = name
         self.icon = icon
@@ -37,6 +43,10 @@ final class Expense {
     var note: String = ""
     var createdAt: Date = Date.now
     var category: BudgetCategory?
+    /// Bank transaction ID for imported expenses (used to skip duplicates). Empty for manual ones.
+    var externalID: String = ""
+    /// "bank" for imported expenses, empty for manual ones.
+    var source: String = ""
 
     init(amount: Double, date: Date, note: String, category: BudgetCategory?) {
         self.amount = amount
@@ -76,6 +86,7 @@ final class FixedCostTemplate {
     var anchorDate: Date = Date.now
     var isSavings: Bool = false
     var sortOrder: Int = 0
+    var category: BudgetCategory?
 
     init(name: String, amount: Double, frequency: CostFrequency, mode: ChargeMode,
          anchorDate: Date, isSavings: Bool, sortOrder: Int) {
@@ -192,6 +203,7 @@ final class PeriodFixedCost {
     /// Short explanation, e.g. "4 × € 10 weekly" or "Yearly, spread".
     var detail: String = ""
     var period: BudgetPeriod?
+    var category: BudgetCategory?
 
     init(name: String, amount: Double, isSavings: Bool, sortOrder: Int, templateKey: String, detail: String) {
         self.name = name
@@ -200,6 +212,54 @@ final class PeriodFixedCost {
         self.sortOrder = sortOrder
         self.templateKey = templateKey
         self.detail = detail
+    }
+}
+
+// MARK: - Bank connections (Enable Banking)
+
+@Model
+final class BankConnection {
+    var sessionID: String = ""
+    var bankName: String = ""
+    var bankCountry: String = ""
+    var validUntil: Date = Date.now
+    var createdAt: Date = Date.now
+    var lastSyncedAt: Date?
+
+    @Relationship(deleteRule: .cascade, inverse: \BankAccountLink.connection)
+    var accounts: [BankAccountLink]? = []
+
+    init(sessionID: String, bankName: String, bankCountry: String, validUntil: Date) {
+        self.sessionID = sessionID
+        self.bankName = bankName
+        self.bankCountry = bankCountry
+        self.validUntil = validUntil
+        self.createdAt = .now
+    }
+
+    var isValid: Bool { validUntil > .now }
+}
+
+@Model
+final class BankAccountLink {
+    var uid: String = ""
+    var iban: String = ""
+    var name: String = ""
+    var currency: String = ""
+    var isEnabled: Bool = true
+    var connection: BankConnection?
+
+    init(uid: String, iban: String, name: String, currency: String) {
+        self.uid = uid
+        self.iban = iban
+        self.name = name
+        self.currency = currency
+    }
+
+    var displayName: String {
+        if !name.isEmpty { return name }
+        if !iban.isEmpty { return iban }
+        return "Account"
     }
 }
 
@@ -232,6 +292,7 @@ enum CategoryPalette {
         "house", "bolt", "phone", "tshirt", "bag", "gift",
         "gamecontroller", "film", "book", "airplane", "figure.run", "heart",
         "cross.case", "pawprint", "graduationcap", "wrench.and.screwdriver", "creditcard", "ellipsis.circle",
+        "shield", "repeat", "banknote", "building.columns", "drop", "tv",
     ]
 
     static func color(named name: String) -> Color {

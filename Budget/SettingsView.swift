@@ -16,6 +16,10 @@ struct SettingsView: View {
     @AppStorage(RootView.setupKey) private var didCompleteSetup = true
 
     @State private var confirmingReset = false
+    @State private var shareFile: ShareFile?
+    @State private var importing = false
+    @State private var pendingRestore: BackupFile?
+    @State private var errorMessage: String?
 
     private var rule: PaydayRule {
         PaydayRule(day: paydayDay,
@@ -65,11 +69,33 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    ShareLink(item: CSVExport(csv: makeCSV()),
-                              preview: SharePreview("expenses.csv")) {
-                        Label("Export expenses (CSV)", systemImage: "square.and.arrow.up")
+                    NavigationLink {
+                        BankSettingsView()
+                    } label: {
+                        Label("Bank connections", systemImage: "building.columns")
                     }
-                    .disabled(expenses.isEmpty)
+                } header: {
+                    Text("Bank")
+                } footer: {
+                    Text("Connect ABN AMRO, Revolut and other banks through Enable Banking to import fixed costs or transactions.")
+                }
+
+                Section {
+                    Button {
+                        share { try BackupManager.writeBackupFile(context: context) }
+                    } label: {
+                        Label("Back up all data", systemImage: "externaldrive.badge.plus")
+                    }
+                    Button {
+                        importing = true
+                    } label: {
+                        Label("Restore from backup", systemImage: "externaldrive.badge.timemachine")
+                    }
+                    Button {
+                        share { try BackupManager.writeCSV(context: context) }
+                    } label: {
+                        Label("Export to CSV (Excel)", systemImage: "tablecells")
+                    }
 
                     Button(role: .destructive) {
                         confirmingReset = true
@@ -79,7 +105,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Data")
                 } footer: {
-                    Text("Your data is stored only on this iPhone. Export it now and then as a backup: deleting the app deletes your data.")
+                    Text("Your data is stored only on this iPhone. Make a backup now and then, and save it in Files or iCloud Drive: deleting the app deletes your data. The CSV contains all expenses and fixed costs, with their category and period.")
                 }
 
                 Section {
@@ -91,6 +117,33 @@ struct SettingsView: View {
             .onChange(of: paydayDay) { _, _ in applyRule() }
             .onChange(of: saturdayRaw) { _, _ in applyRule() }
             .onChange(of: sundayRaw) { _, _ in applyRule() }
+            .sheet(item: $shareFile) { file in
+                ActivityView(items: [file.url])
+            }
+            .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
+                handleImport(result)
+            }
+            .alert("Restore backup?",
+                   isPresented: Binding(get: { pendingRestore != nil },
+                                        set: { if !$0 { pendingRestore = nil } }),
+                   presenting: pendingRestore) { backup in
+                Button("Restore", role: .destructive) {
+                    BackupManager.restore(backup, context: context)
+                    pendingRestore = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingRestore = nil
+                }
+            } message: { backup in
+                Text("All current data is replaced with the backup from \(backup.createdAt.formatted(date: .abbreviated, time: .shortened)).")
+            }
+            .alert("Something went wrong",
+                   isPresented: Binding(get: { errorMessage != nil },
+                                        set: { if !$0 { errorMessage = nil } })) {
+                Button("OK", role: .cancel) { errorMessage = nil }
+            } message: {
+                Text(errorMessage ?? "")
+            }
             .alert("Reset everything?", isPresented: $confirmingReset) {
                 Button("Reset", role: .destructive) {
                     PeriodManager.resetAllData(context: context)
@@ -133,34 +186,29 @@ struct SettingsView: View {
         PeriodManager.applyRuleToCurrentPeriod(context: context, rule: rule)
     }
 
-    /// CSV export. Uses ";" when the device uses a decimal comma, so Excel/Numbers open it correctly.
-    private func makeCSV() -> String {
-        func field(_ value: String) -> String {
-            "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+    private func share(_ makeFile: () throws -> URL) {
+        do {
+            shareFile = ShareFile(url: try makeFile())
+        } catch {
+            errorMessage = error.localizedDescription
         }
-        let separator = AppFormat.locale.decimalSeparator == "," ? ";" : ","
-        let dateStyle = Date.ISO8601FormatStyle(timeZone: .current).year().month().day()
-        var lines = [["Date", "Amount", "Category", "Note"].joined(separator: separator)]
-        for expense in expenses {
-            lines.append([
-                expense.date.formatted(dateStyle),
-                expense.amount.editableAmount,
-                field(expense.category?.name ?? ""),
-                field(expense.note),
-            ].joined(separator: separator))
-        }
-        return "\u{FEFF}" + lines.joined(separator: "\n")
     }
-}
 
-struct CSVExport: Transferable {
-    let csv: String
-
-    static var transferRepresentation: some TransferRepresentation {
-        FileRepresentation(exportedContentType: .commaSeparatedText) { export in
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("expenses.csv")
-            try export.csv.write(to: url, atomically: true, encoding: .utf8)
-            return SentTransferredFile(url)
+    private func handleImport(_ result: Result<URL, Error>) {
+        switch result {
+        case .success(let url):
+            let hasAccess = url.startAccessingSecurityScopedResource()
+            defer {
+                if hasAccess { url.stopAccessingSecurityScopedResource() }
+            }
+            do {
+                let data = try Data(contentsOf: url)
+                pendingRestore = try BackupManager.decode(data)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        case .failure(let error):
+            errorMessage = error.localizedDescription
         }
     }
 }
@@ -234,7 +282,7 @@ struct CategoriesSettingsView: View {
                 pendingDelete = nil
             }
         } message: { category in
-            Text("\"\(category.name)\" and all \(category.expenses?.count ?? 0) expenses in this category will be deleted.")
+            Text("\"\(category.name)\" and all \(category.expenses?.count ?? 0) expenses in this category will be deleted. Fixed costs in this category keep existing, without a category.")
         }
     }
 
@@ -361,14 +409,45 @@ struct IncomeSourceEditView: View {
 struct FixedCostTemplatesView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \FixedCostTemplate.sortOrder) private var templates: [FixedCostTemplate]
+    @Query(sort: \BudgetPeriod.startDate) private var periods: [BudgetPeriod]
     @State private var editing: FixedCostTemplate?
     @State private var adding = false
+    @State private var resultMessage: String?
+
+    private var currentPeriod: BudgetPeriod? {
+        periods.last { $0.isCurrent }
+    }
 
     var body: some View {
         let regular = templates.filter { !$0.isSavings }
         let savings = templates.filter { $0.isSavings }
 
         List {
+            Section {
+                NavigationLink {
+                    AssignCategoriesView()
+                } label: {
+                    Label("Assign categories", systemImage: "tag")
+                }
+            } footer: {
+                Text("Give each fixed cost a category, to see fixed and variable costs per category.")
+            }
+
+            if let currentPeriod {
+                Section {
+                    Button {
+                        let added = PeriodManager.addMissingDefaultFixedCosts(to: currentPeriod, context: context)
+                        resultMessage = added == 0
+                            ? "All your default fixed costs are already in the current period."
+                            : "Added \(added) fixed \(added == 1 ? "cost" : "costs") to the current period."
+                    } label: {
+                        Label("Add to current period", systemImage: "square.and.arrow.down")
+                    }
+                } footer: {
+                    Text("Adds the defaults that aren't in \(AppFormat.periodTitle(start: currentPeriod.startDate, lastDay: currentPeriod.lastDay)) yet. Fixed costs already in that period stay as they are.")
+                }
+            }
+
             Section {
                 ForEach(regular) { template in
                     row(for: template)
@@ -409,6 +488,13 @@ struct FixedCostTemplatesView: View {
         }
         .navigationTitle("Fixed costs & savings")
         .navigationBarTitleDisplayMode(.inline)
+        .alert("Current period",
+               isPresented: Binding(get: { resultMessage != nil },
+                                    set: { if !$0 { resultMessage = nil } })) {
+            Button("OK", role: .cancel) { resultMessage = nil }
+        } message: {
+            Text(resultMessage ?? "")
+        }
         .sheet(item: $editing) { template in
             FixedCostTemplateEditView(template: template)
         }
@@ -430,10 +516,12 @@ struct FixedCostTemplatesView: View {
     }
 
     private func subtitle(for template: FixedCostTemplate) -> String {
-        if template.frequency == .monthly {
-            return "Monthly"
+        var parts: [String] = [template.frequency.title]
+        if template.frequency != .monthly {
+            parts.append(template.mode.title.lowercased())
         }
-        return "\(template.frequency.title) · \(template.mode.title.lowercased())"
+        parts.append(template.category?.name ?? "no category")
+        return parts.joined(separator: " · ")
     }
 }
 
@@ -449,6 +537,7 @@ struct FixedCostTemplateEditView: View {
     @State private var mode: ChargeMode
     @State private var anchorDate: Date
     @State private var isSavings: Bool
+    @State private var category: BudgetCategory?
 
     init(template: FixedCostTemplate?) {
         self.template = template
@@ -458,6 +547,7 @@ struct FixedCostTemplateEditView: View {
         _mode = State(initialValue: template?.mode ?? .whenDue)
         _anchorDate = State(initialValue: template?.anchorDate ?? .now)
         _isSavings = State(initialValue: template?.isSavings ?? false)
+        _category = State(initialValue: template?.category)
     }
 
     private var amount: Double? { amountText.parsedAmount }
@@ -471,6 +561,11 @@ struct FixedCostTemplateEditView: View {
             Form {
                 FixedCostFields(name: $name, amountText: $amountText, frequency: $frequency,
                                 mode: $mode, anchorDate: $anchorDate, isSavings: $isSavings)
+                Section {
+                    CategoryPickerRow(selection: $category)
+                } footer: {
+                    Text("Used to show fixed and variable costs per category. Applied to all periods.")
+                }
             }
             .navigationTitle(template == nil ? "New fixed cost" : "Fixed cost")
             .navigationBarTitleDisplayMode(.inline)
@@ -497,10 +592,14 @@ struct FixedCostTemplateEditView: View {
             template.mode = mode
             template.anchorDate = anchorDate
             template.isSavings = isSavings
+            template.category = category
+            PeriodManager.syncCategory(of: template, context: context)
         } else {
             let order = (templates.map(\.sortOrder).max() ?? -1) + 1
-            context.insert(FixedCostTemplate(name: trimmed, amount: amount, frequency: frequency, mode: mode,
-                                             anchorDate: anchorDate, isSavings: isSavings, sortOrder: order))
+            let newTemplate = FixedCostTemplate(name: trimmed, amount: amount, frequency: frequency, mode: mode,
+                                                anchorDate: anchorDate, isSavings: isSavings, sortOrder: order)
+            context.insert(newTemplate)
+            newTemplate.category = category
         }
         try? context.save()
         dismiss()

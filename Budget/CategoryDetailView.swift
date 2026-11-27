@@ -16,6 +16,8 @@ struct CategoryDetailView: View {
             $0.category?.persistentModelID == id && period.contains($0.date)
         }
         let spent = items.reduce(0) { $0 + $1.amount }
+        let fixedItems = period.sortedFixedCosts.filter { $0.category?.persistentModelID == id }
+        let fixedTotal = fixedItems.reduce(0) { $0 + $1.amount }
         let budget = PeriodManager.effectiveBudget(category: category, period: period,
                                                    periods: periods, expenses: expenses)
 
@@ -33,6 +35,18 @@ struct CategoryDetailView: View {
                 BudgetBar(spent: spent, budget: budget, color: category.color)
             } header: {
                 Text(AppFormat.periodTitle(start: period.startDate, lastDay: period.lastDay))
+            }
+
+            if !fixedItems.isEmpty {
+                Section {
+                    ForEach(fixedItems) { cost in
+                        AmountRow(title: cost.name, subtitle: cost.detail, amount: cost.amount)
+                    }
+                } header: {
+                    Text("Fixed costs")
+                } footer: {
+                    Text("Fixed \(fixedTotal.asCurrency) + variable \(spent.asCurrency) = \((fixedTotal + spent).asCurrency) in total.")
+                }
             }
 
             Section {
@@ -54,7 +68,7 @@ struct CategoryDetailView: View {
                     }
                 }
             } header: {
-                Text("Expenses")
+                Text("Your expenses")
             }
         }
         .navigationTitle(category.name)

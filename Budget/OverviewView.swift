@@ -91,14 +91,21 @@ struct OverviewView: View {
         }
 
         Section {
+            NavigationLink {
+                CategoryBreakdownView(period: period)
+            } label: {
+                Label("Variable vs fixed by category", systemImage: "chart.bar.xaxis")
+            }
+
             ForEach(categories) { category in
                 let categorySpent = PeriodManager.spent(in: period, category: category, expenses: expenses)
                 let carried = PeriodManager.carriedIn(category: category, period: period,
                                                       periods: periods, expenses: expenses)
+                let fixed = PeriodManager.fixedCosts(in: period, category: category)
                 NavigationLink {
                     CategoryDetailView(category: category, period: period)
                 } label: {
-                    BudgetRow(category: category, spent: categorySpent, carried: carried)
+                    BudgetRow(category: category, spent: categorySpent, carried: carried, fixed: fixed)
                 }
             }
         } header: {
@@ -180,8 +187,13 @@ private struct BudgetRow: View {
     let category: BudgetCategory
     let spent: Double
     let carried: Double
+    let fixed: Double
 
     private var budget: Double { category.budget + carried }
+
+    private var fixedNote: String {
+        "Fixed \(fixed.asCurrency) · Total \((spent + fixed).asCurrency)"
+    }
 
     private var carryNote: String {
         carried > 0
@@ -206,6 +218,12 @@ private struct BudgetRow: View {
                     Text(carryNote)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                }
+                if fixed > 0 {
+                    Text(fixedNote)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
                 }
             }
         }

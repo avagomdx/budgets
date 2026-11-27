@@ -155,12 +155,34 @@ struct PeriodIncomeView: View {
 }
 
 struct PeriodFixedCostsView: View {
+    @Environment(\.modelContext) private var context
     let period: BudgetPeriod
     @State private var target: FixedCostEditTarget?
+    @State private var resultMessage: String?
 
     var body: some View {
         List {
             PeriodFixedCostSections(period: period) { target = $0 }
+
+            Section {
+                Button {
+                    let added = PeriodManager.addMissingDefaultFixedCosts(to: period, context: context)
+                    resultMessage = added == 0
+                        ? "All your default fixed costs are already in this period."
+                        : "Added \(added) fixed \(added == 1 ? "cost" : "costs") from your defaults."
+                } label: {
+                    Label("Add missing defaults", systemImage: "square.and.arrow.down")
+                }
+            } footer: {
+                Text("Adds default fixed costs (Settings) that aren't in this period yet.")
+            }
+        }
+        .alert("Fixed costs",
+               isPresented: Binding(get: { resultMessage != nil },
+                                    set: { if !$0 { resultMessage = nil } })) {
+            Button("OK", role: .cancel) { resultMessage = nil }
+        } message: {
+            Text(resultMessage ?? "")
         }
         .navigationTitle("Fixed costs")
         .navigationBarTitleDisplayMode(.inline)
@@ -296,6 +318,7 @@ struct PeriodFixedCostEditView: View {
     @State private var name: String
     @State private var amountText: String
     @State private var isSavings: Bool
+    @State private var category: BudgetCategory?
     @State private var updateDefault = false
 
     init(period: BudgetPeriod, target: FixedCostEditTarget) {
@@ -306,11 +329,13 @@ struct PeriodFixedCostEditView: View {
             _name = State(initialValue: cost.name)
             _amountText = State(initialValue: cost.amount.editableAmountOrEmpty)
             _isSavings = State(initialValue: cost.isSavings)
+            _category = State(initialValue: cost.category)
         case .add:
             self.cost = nil
             _name = State(initialValue: "")
             _amountText = State(initialValue: "")
             _isSavings = State(initialValue: false)
+            _category = State(initialValue: nil)
         }
     }
 
@@ -334,6 +359,7 @@ struct PeriodFixedCostEditView: View {
                     TextField("Name", text: $name)
                     AmountField(placeholder: "0.00", text: $amountText)
                     Toggle("This is savings", isOn: $isSavings)
+                    CategoryPickerRow(selection: $category)
                 } footer: {
                     if let detail = cost?.detail, !detail.isEmpty {
                         Text(detail)
@@ -382,10 +408,12 @@ struct PeriodFixedCostEditView: View {
             cost.name = trimmed
             cost.amount = amount
             cost.isSavings = isSavings
+            cost.category = category
             if updateDefault, let template = linkedMonthlyTemplate {
                 template.name = trimmed
                 template.amount = amount
                 template.isSavings = isSavings
+                template.category = category
             }
         } else {
             let order = (period.fixedCosts ?? []).map(\.sortOrder).max() ?? 0
@@ -393,6 +421,7 @@ struct PeriodFixedCostEditView: View {
                                           sortOrder: order + 1, templateKey: "", detail: "This period only")
             context.insert(newCost)
             newCost.period = period
+            newCost.category = category
         }
         try? context.save()
         dismiss()

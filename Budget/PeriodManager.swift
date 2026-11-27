@@ -57,9 +57,33 @@ enum PeriodManager {
                                        sortOrder: order, templateKey: template.key, detail: charge.detail)
             context.insert(cost)
             cost.period = period
+            cost.category = template.category
             order += 1
         }
         return period
+    }
+
+    /// Adds default fixed costs that aren't in the period yet (matched by their default).
+    /// Costs already in the period are left as they are. Returns how many were added.
+    @discardableResult
+    static func addMissingDefaultFixedCosts(to period: BudgetPeriod, context: ModelContext) -> Int {
+        let existingKeys = Set((period.fixedCosts ?? []).map(\.templateKey).filter { !$0.isEmpty })
+        let templates = (try? context.fetch(FetchDescriptor<FixedCostTemplate>(sortBy: [SortDescriptor(\.sortOrder)]))) ?? []
+        var order = ((period.fixedCosts ?? []).map(\.sortOrder).max() ?? -1) + 1
+        var added = 0
+        for template in templates where !existingKeys.contains(template.key) {
+            let charge = template.spec.charge(start: period.startDate, end: period.endDate)
+            guard charge.amount > 0 else { continue }
+            let cost = PeriodFixedCost(name: template.name, amount: charge.amount, isSavings: template.isSavings,
+                                       sortOrder: order, templateKey: template.key, detail: charge.detail)
+            context.insert(cost)
+            cost.period = period
+            cost.category = template.category
+            order += 1
+            added += 1
+        }
+        try? context.save()
+        return added
     }
 
     /// Salary came early: end the current period today and start the next one.
@@ -91,6 +115,8 @@ enum PeriodManager {
         for item in (try? context.fetch(FetchDescriptor<BudgetCategory>())) ?? [] { context.delete(item) }
         for item in (try? context.fetch(FetchDescriptor<IncomeSource>())) ?? [] { context.delete(item) }
         for item in (try? context.fetch(FetchDescriptor<FixedCostTemplate>())) ?? [] { context.delete(item) }
+        for item in (try? context.fetch(FetchDescriptor<BankAccountLink>())) ?? [] { context.delete(item) }
+        for item in (try? context.fetch(FetchDescriptor<BankConnection>())) ?? [] { context.delete(item) }
         try? context.save()
     }
 
@@ -149,6 +175,24 @@ enum PeriodManager {
     static func effectiveBudget(category: BudgetCategory, period: BudgetPeriod,
                                 periods: [BudgetPeriod], expenses: [Expense]) -> Double {
         category.budget + carriedIn(category: category, period: period, periods: periods, expenses: expenses)
+    }
+
+    /// Fixed costs (incl. savings) in a period assigned to a category.
+    static func fixedCosts(in period: BudgetPeriod, category: BudgetCategory) -> Double {
+        let id = category.persistentModelID
+        return (period.fixedCosts ?? []).reduce(0) { total, cost in
+            cost.category?.persistentModelID == id ? total + cost.amount : total
+        }
+    }
+
+    /// Gives every period copy of a default fixed cost the same category as the default.
+    static func syncCategory(of template: FixedCostTemplate, context: ModelContext) {
+        let key = template.key
+        let descriptor = FetchDescriptor<PeriodFixedCost>(predicate: #Predicate<PeriodFixedCost> { $0.templateKey == key })
+        for cost in (try? context.fetch(descriptor)) ?? [] {
+            cost.category = template.category
+        }
+        try? context.save()
     }
 
     /// Number of days left in the period, including today.

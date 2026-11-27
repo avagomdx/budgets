@@ -19,6 +19,15 @@ targets:
     sources:
       - path: Budget
     scheme: {}
+    info:
+      path: SupportingFiles/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleURLTypes:
+          - CFBundleURLName: com.anthony.budget.callback
+            CFBundleURLSchemes:
+              - budgetapp
     settings:
       base:
         PRODUCT_NAME: Budget
