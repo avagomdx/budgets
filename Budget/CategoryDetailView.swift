@@ -3,23 +3,23 @@ import SwiftData
 
 struct CategoryDetailView: View {
     let category: BudgetCategory
-    @Binding var month: Date
+    let period: BudgetPeriod
 
     @Environment(\.modelContext) private var context
     @Query(sort: \Expense.date, order: .reverse) private var expenses: [Expense]
+    @Query(sort: \BudgetPeriod.startDate) private var periods: [BudgetPeriod]
     @State private var editing: Expense?
 
     var body: some View {
+        let id = category.persistentModelID
         let items = expenses.filter {
-            $0.category?.persistentModelID == category.persistentModelID && $0.date.isSameMonth(as: month)
+            $0.category?.persistentModelID == id && period.contains($0.date)
         }
         let spent = items.reduce(0) { $0 + $1.amount }
+        let budget = PeriodManager.effectiveBudget(category: category, period: period,
+                                                   periods: periods, expenses: expenses)
 
         List {
-            Section {
-                MonthSwitcher(month: $month)
-            }
-
             Section {
                 HStack(spacing: 12) {
                     CategoryIcon(category: category, size: 44)
@@ -30,12 +30,14 @@ struct CategoryDetailView: View {
                             .monospacedDigit()
                     }
                 }
-                BudgetBar(spent: spent, budget: category.monthlyBudget, color: category.color)
+                BudgetBar(spent: spent, budget: budget, color: category.color)
+            } header: {
+                Text(AppFormat.periodTitle(start: period.startDate, lastDay: period.lastDay))
             }
 
             Section {
                 if items.isEmpty {
-                    Text("No expenses this month")
+                    Text("No expenses in this period")
                         .foregroundStyle(.secondary)
                 }
                 ForEach(items) { expense in

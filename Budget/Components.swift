@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 import UIKit
 
 struct CategoryIcon: View {
@@ -23,36 +24,62 @@ extension CategoryIcon {
     }
 }
 
-/// Month switcher: ‹ November 2026 ›  (tap the month to jump back to the current month)
-struct MonthSwitcher: View {
-    @Binding var month: Date
+/// Period switcher: ‹ 20 Nov – 19 Dec ›  (tap the title to jump back to the current period)
+struct PeriodSwitcher: View {
+    let periods: [BudgetPeriod]
+    @Binding var selectedID: PersistentIdentifier?
+
+    private var selected: BudgetPeriod? {
+        PeriodManager.resolve(selectedID, in: periods)
+    }
+
+    private var selectedIndex: Int? {
+        guard let selected else { return nil }
+        return periods.firstIndex { $0.persistentModelID == selected.persistentModelID }
+    }
 
     var body: some View {
         HStack {
             Button {
-                month = month.addingMonths(-1)
+                if let index = selectedIndex, index > 0 {
+                    selectedID = periods[index - 1].persistentModelID
+                }
             } label: {
                 Image(systemName: "chevron.left").font(.headline)
             }
             .buttonStyle(.borderless)
+            .disabled((selectedIndex ?? 0) == 0)
 
             Spacer()
 
             Button {
-                month = .now
+                selectedID = nil
             } label: {
-                Text(month.monthTitle).font(.headline)
+                VStack(spacing: 2) {
+                    if let selected {
+                        Text(AppFormat.periodTitle(start: selected.startDate, lastDay: selected.lastDay))
+                            .font(.headline)
+                        Text(selected.isCurrent ? "Current period" : "Tap for current period")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("No period").font(.headline)
+                    }
+                }
             }
             .buttonStyle(.plain)
 
             Spacer()
 
             Button {
-                month = month.addingMonths(1)
+                if let index = selectedIndex, index < periods.count - 1 {
+                    selectedID = periods[index + 1].persistentModelID
+                }
             } label: {
                 Image(systemName: "chevron.right").font(.headline)
             }
             .buttonStyle(.borderless)
+            .disabled((selectedIndex ?? periods.count) >= periods.count - 1)
         }
         .padding(.vertical, 2)
     }
@@ -69,7 +96,7 @@ struct BudgetBar: View {
     var body: some View {
         if budget > 0 {
             VStack(alignment: .leading, spacing: 4) {
-                ProgressView(value: min(spent, budget), total: budget)
+                ProgressView(value: min(max(spent, 0), budget), total: budget)
                     .tint(isOver ? .red : color)
                 HStack {
                     if isOver {
@@ -86,6 +113,49 @@ struct BudgetBar: View {
                 .font(.caption)
                 .monospacedDigit()
             }
+        }
+    }
+}
+
+/// A label + amount row, e.g. "Income   + € 3,000.00"
+struct AmountRow: View {
+    let title: String
+    var subtitle: String? = nil
+    let amount: Double
+    var sign: String = ""
+    var color: Color = .primary
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Text(sign + amount.asCurrency)
+                .monospacedDigit()
+                .foregroundStyle(color)
+        }
+    }
+}
+
+/// Text field for amounts with the currency symbol in front.
+struct AmountField: View {
+    let placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(AppFormat.currencySymbol)
+                .foregroundStyle(.secondary)
+            TextField(placeholder, text: $text)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .monospacedDigit()
         }
     }
 }

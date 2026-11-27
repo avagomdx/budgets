@@ -4,51 +4,43 @@ import SwiftData
 struct OverviewView: View {
     @Binding var showingAdd: Bool
 
+    @Environment(\.modelContext) private var context
     @Query(sort: \BudgetCategory.sortOrder) private var categories: [BudgetCategory]
     @Query(sort: \Expense.date, order: .reverse) private var expenses: [Expense]
-    @State private var month = Date.now
+    @Query(sort: \BudgetPeriod.startDate) private var periods: [BudgetPeriod]
+    @State private var selectedPeriodID: PersistentIdentifier?
+    @State private var confirmingEarlyStart = false
 
     var body: some View {
-        let monthExpenses = expenses.filter { $0.date.isSameMonth(as: month) }
-        let spentByCategory = Self.totals(for: monthExpenses)
-        let totalSpent = monthExpenses.reduce(0) { $0 + $1.amount }
-        let totalBudget = categories.reduce(0) { $0 + $1.monthlyBudget }
+        let period = PeriodManager.resolve(selectedPeriodID, in: periods)
 
         NavigationStack {
             List {
                 Section {
-                    MonthSwitcher(month: $month)
+                    PeriodSwitcher(periods: periods, selectedID: $selectedPeriodID)
                 }
 
-                Section {
-                    SummaryCard(spent: totalSpent, budget: totalBudget, month: month)
-                }
-
-                Section {
-                    ForEach(categories) { category in
-                        NavigationLink {
-                            CategoryDetailView(category: category, month: $month)
-                        } label: {
-                            BudgetRow(category: category,
-                                      spent: spentByCategory[category.persistentModelID] ?? 0)
-                        }
-                    }
-                } header: {
-                    Text("Budgets")
-                }
-
-                if !monthExpenses.isEmpty {
-                    Section {
-                        ForEach(monthExpenses.prefix(5)) { expense in
-                            ExpenseRow(expense: expense, showDate: true)
-                        }
-                    } header: {
-                        Text("Recent expenses")
-                    }
+                if let period {
+                    content(for: period)
+                } else {
+                    Text("No period yet.")
+                        .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("Overview")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        Button {
+                            confirmingEarlyStart = true
+                        } label: {
+                            Label("Salary came early", systemImage: "forward.end")
+                        }
+                        .disabled(!canStartEarly)
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showingAdd = true
@@ -58,67 +50,144 @@ struct OverviewView: View {
                     .accessibilityLabel("Add expense")
                 }
             }
+            .confirmationDialog("Start the next period today?", isPresented: $confirmingEarlyStart,
+                                titleVisibility: .visible) {
+                Button("Start new period today") { startEarly() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The current period ends yesterday, and a new period starts today with a check-in. Expenses from today onwards count for the new period.")
+            }
             .safeAreaInset(edge: .bottom) {
                 AddExpenseButton { showingAdd = true }
             }
         }
     }
 
-    static func totals(for expenses: [Expense]) -> [PersistentIdentifier: Double] {
-        var result: [PersistentIdentifier: Double] = [:]
-        for expense in expenses {
-            if let id = expense.category?.persistentModelID {
-                result[id, default: 0] += expense.amount
+    // MARK: - Content
+
+    @ViewBuilder
+    private func content(for period: BudgetPeriod) -> some View {
+        let periodExpenses = PeriodManager.expenses(in: period, from: expenses)
+        let spent = periodExpenses.reduce(0) { $0 + $1.amount }
+
+        Section {
+            LeftToSpendCard(period: period, spent: spent)
+        }
+
+        Section {
+            NavigationLink {
+                PeriodIncomeView(period: period)
+            } label: {
+                AmountRow(title: "Income", amount: period.totalIncome, sign: "+ ")
+            }
+            NavigationLink {
+                PeriodFixedCostsView(period: period)
+            } label: {
+                AmountRow(title: "Fixed costs",
+                          subtitle: period.totalSavings > 0 ? "incl. \(period.totalSavings.asCurrency) savings" : nil,
+                          amount: period.totalFixedCosts, sign: "− ")
+            }
+            AmountRow(title: "Spent", amount: spent, sign: "− ")
+        }
+
+        Section {
+            ForEach(categories) { category in
+                let categorySpent = PeriodManager.spent(in: period, category: category, expenses: expenses)
+                let carried = PeriodManager.carriedIn(category: category, period: period,
+                                                      periods: periods, expenses: expenses)
+                NavigationLink {
+                    CategoryDetailView(category: category, period: period)
+                } label: {
+                    BudgetRow(category: category, spent: categorySpent, carried: carried)
+                }
+            }
+        } header: {
+            Text("Budgets")
+        }
+
+        if !periodExpenses.isEmpty {
+            Section {
+                ForEach(periodExpenses.prefix(5)) { expense in
+                    ExpenseRow(expense: expense, showDate: true)
+                }
+            } header: {
+                Text("Recent expenses")
             }
         }
-        return result
+    }
+
+    // MARK: - Salary came early
+
+    private var currentPeriod: BudgetPeriod? {
+        periods.last { $0.isCurrent }
+    }
+
+    private var canStartEarly: Bool {
+        guard let current = currentPeriod else { return false }
+        return !Calendar.current.isDateInToday(current.startDate)
+    }
+
+    private func startEarly() {
+        guard let current = currentPeriod else { return }
+        PeriodManager.startNextPeriodEarly(current: current, context: context)
+        selectedPeriodID = nil
     }
 }
 
-private struct SummaryCard: View {
+// MARK: - Left to spend
+
+private struct LeftToSpendCard: View {
+    let period: BudgetPeriod
     let spent: Double
-    let budget: Double
-    let month: Date
 
-    private var remaining: Double { budget - spent }
+    private var left: Double { period.totalIncome - period.totalFixedCosts - spent }
 
-    /// What you can still spend per day; current month only.
-    private var perDay: Double? {
-        guard month.isSameMonth(as: .now), remaining > 0 else { return nil }
-        let calendar = Calendar.current
-        guard let days = calendar.range(of: .day, in: .month, for: .now)?.count else { return nil }
-        let today = calendar.component(.day, from: .now)
-        let daysLeft = max(days - today + 1, 1)
-        return remaining / Double(daysLeft)
+    private var title: String {
+        period.endDate <= .now ? "Left over" : "Left to spend"
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Spent")
+            Text(title)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Text(spent.asCurrency)
+            Text(left.asCurrency)
                 .font(.system(size: 36, weight: .bold, design: .rounded))
                 .monospacedDigit()
+                .foregroundStyle(left < 0 ? Color.red : Color.primary)
                 .contentTransition(.numericText())
 
-            BudgetBar(spent: spent, budget: budget, color: .accentColor)
-
-            if let perDay {
-                Label("About \(perDay.asCurrency) per day for the rest of the month",
-                      systemImage: "calendar")
+            if period.isCurrent {
+                let days = PeriodManager.daysLeft(in: period)
+                let dayWord = days == 1 ? "day" : "days"
+                if left > 0 {
+                    Label("About \((left / Double(days)).asCurrency) per day for \(days) \(dayWord)",
+                          systemImage: "calendar")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Label("Next payday: \(period.endDate.shortDayTitle)", systemImage: "banknote")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 6)
-        .animation(.default, value: spent)
+        .animation(.default, value: left)
     }
 }
 
 private struct BudgetRow: View {
     let category: BudgetCategory
     let spent: Double
+    let carried: Double
+
+    private var budget: Double { category.budget + carried }
+
+    private var carryNote: String {
+        carried > 0
+            ? "incl. \(carried.asCurrency) carried over"
+            : "\((-carried).asCurrency) overspent last period"
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -130,9 +199,14 @@ private struct BudgetRow: View {
                     Text(spent.asCurrency)
                         .monospacedDigit()
                         .fontWeight(.medium)
-                        .foregroundStyle(category.monthlyBudget > 0 && spent > category.monthlyBudget ? Color.red : Color.primary)
+                        .foregroundStyle(budget > 0 && spent > budget ? Color.red : Color.primary)
                 }
-                BudgetBar(spent: spent, budget: category.monthlyBudget, color: category.color)
+                BudgetBar(spent: spent, budget: budget, color: category.color)
+                if carried != 0 {
+                    Text(carryNote)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(.vertical, 4)

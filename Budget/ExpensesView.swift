@@ -6,7 +6,8 @@ struct ExpensesView: View {
 
     @Environment(\.modelContext) private var context
     @Query(sort: \Expense.date, order: .reverse) private var expenses: [Expense]
-    @State private var month = Date.now
+    @Query(sort: \BudgetPeriod.startDate) private var periods: [BudgetPeriod]
+    @State private var selectedPeriodID: PersistentIdentifier?
     @State private var editing: Expense?
     @State private var searchText = ""
 
@@ -17,10 +18,11 @@ struct ExpensesView: View {
         var total: Double { items.reduce(0) { $0 + $1.amount } }
     }
 
-    private var groups: [DayGroup] {
+    private func groups(for period: BudgetPeriod?) -> [DayGroup] {
+        guard let period else { return [] }
         let query = searchText.trimmingCharacters(in: .whitespaces)
         let filtered = expenses.filter { expense in
-            guard expense.date.isSameMonth(as: month) else { return false }
+            guard period.contains(expense.date) else { return false }
             guard !query.isEmpty else { return true }
             return expense.note.localizedCaseInsensitiveContains(query)
                 || (expense.category?.name.localizedCaseInsensitiveContains(query) ?? false)
@@ -37,20 +39,21 @@ struct ExpensesView: View {
 
     private var emptyMessage: String {
         searchText.isEmpty
-            ? "There are no expenses in \(month.monthTitle) yet."
+            ? "There are no expenses in this period yet."
             : "Try a different search term."
     }
 
     var body: some View {
-        let groups = self.groups
+        let period = PeriodManager.resolve(selectedPeriodID, in: periods)
+        let dayGroups = groups(for: period)
 
         NavigationStack {
             List {
                 Section {
-                    MonthSwitcher(month: $month)
+                    PeriodSwitcher(periods: periods, selectedID: $selectedPeriodID)
                 }
 
-                if groups.isEmpty {
+                if dayGroups.isEmpty {
                     ContentUnavailableView(
                         emptyTitle,
                         systemImage: searchText.isEmpty ? "tray" : "magnifyingglass",
@@ -59,7 +62,7 @@ struct ExpensesView: View {
                     .listRowBackground(Color.clear)
                 }
 
-                ForEach(groups) { group in
+                ForEach(dayGroups) { group in
                     Section {
                         ForEach(group.items) { expense in
                             Button {

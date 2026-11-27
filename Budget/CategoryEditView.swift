@@ -14,14 +14,16 @@ struct CategoryEditView: View {
     @State private var icon: String
     @State private var colorName: String
     @State private var budgetText: String
+    @State private var carryOver: Bool
 
     init(category: BudgetCategory?) {
         self.category = category
         _name = State(initialValue: category?.name ?? "")
         _icon = State(initialValue: category?.icon ?? "tag")
         _colorName = State(initialValue: category?.colorName ?? "blue")
-        let budget = category?.monthlyBudget ?? 0
+        let budget = category?.budget ?? 0
         _budgetText = State(initialValue: budget > 0 ? budget.editableAmount : "")
+        _carryOver = State(initialValue: category?.carryOver ?? false)
     }
 
     private var trimmedName: String {
@@ -57,10 +59,11 @@ struct CategoryEditView: View {
                     TextField("No budget", text: $budgetText)
                         .keyboardType(.decimalPad)
                 }
+                Toggle("Carry over what's left", isOn: $carryOver)
             } header: {
-                Text("Monthly budget")
+                Text("Budget per period")
             } footer: {
-                Text("Leave empty if you don't want to track a budget for this category.")
+                Text("Leave empty if you don't want to track a budget for this category. Carry over: what's left (or overspent) moves to the next period.")
             }
 
             Section {
@@ -127,11 +130,12 @@ struct CategoryEditView: View {
             category.name = trimmedName
             category.icon = icon
             category.colorName = colorName
-            category.monthlyBudget = budget
+            category.budget = budget
+            category.carryOver = carryOver
         } else {
             let nextOrder = (categories.map(\.sortOrder).max() ?? -1) + 1
             context.insert(BudgetCategory(name: trimmedName, icon: icon, colorName: colorName,
-                                          monthlyBudget: budget, sortOrder: nextOrder))
+                                          budget: budget, carryOver: carryOver, sortOrder: nextOrder))
         }
         try? context.save()
         dismiss()

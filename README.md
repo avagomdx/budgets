@@ -1,14 +1,21 @@
 # Budget
 
-A simple personal iOS app for tracking expenses against monthly budgets.
+A simple personal iOS app for budgeting from payday to payday.
 
 ## Features
 
-- Monthly overview with per-category budgets and progress bars
+- Setup wizard on first launch: pay day, net income, fixed costs and budgets
+- Pay periods from payday to payday (e.g. 20 Nov – 19 Dec), with a weekend rule for when salary arrives early or late
+- "Left to spend" = income − fixed costs − spent, plus an estimate per day until the next payday
+- Fixed costs and savings with weekly, monthly, quarterly or yearly frequencies (only when due, or spread evenly)
+- Default income and fixed costs for every new period, editable per period
+- Payday check-in to confirm income and fixed costs, optionally carrying over last period's leftover
+- "Salary came early" to start the next period today
+- Extra income during a period (refunds, Tikkies)
+- Category budgets per period, optionally carrying over what's left
+- Period history: income, fixed costs, spent, left over and saved
 - Quick expense entry: the amount field opens right away, the last-used category is preselected, and the date defaults to today
-- Expenses grouped by day, with search, editing and swipe-to-delete
 - Home Screen quick action: long-press the app icon → **New expense**
-- Customizable categories (name, monthly budget, color, icon)
 - CSV export
 - All data is stored on the device with SwiftData. There's no account or server.
 
