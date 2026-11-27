@@ -119,7 +119,13 @@ enum RecurringDetector {
         let groups = Dictionary(grouping: debits) { $0.merchantKey }
 
         var suggestions: [RecurringSuggestion] = []
-        for (key, items) in groups where !key.isEmpty && items.count >= 2 {
+        for (merchant, merchantItems) in groups where !merchant.isEmpty && merchantItems.count >= 2 {
+            // One payee can collect several different things (e.g. a bank: mortgage, account fee,
+            // insurance). Treat each group of similar amounts separately.
+            let clusters = amountClusters(merchantItems).filter { $0.count >= 2 }
+            for (clusterIndex, items) in clusters.enumerated() {
+            let key = clusters.count > 1 ? "\(merchant)~\(clusterIndex + 1)" : merchant
+            let hint = clusters.count > 1 ? nameHint(for: items) : ""
             let sorted = items.sorted { $0.date < $1.date }
 
             // How many payments to this name are there in a typical month?
@@ -127,7 +133,7 @@ enum RecurringDetector {
             let perMonth = Int(median(byMonth.values.map { Double($0.count) }).rounded())
 
             if let whole = classify(sorted, now: now), whole.frequency == .weekly || perMonth < 2 {
-                suggestions.append(suggestion(id: key, key: key, items: sorted, result: whole, suffix: ""))
+                suggestions.append(suggestion(id: key, key: merchant, items: sorted, result: whole, suffix: hint))
                 continue
             }
 
@@ -144,11 +150,41 @@ enum RecurringDetector {
             for (index, part) in series.enumerated() where part.count >= 2 {
                 let partSorted = part.sorted { $0.date < $1.date }
                 guard let result = classify(partSorted, now: now), result.spread <= 0.25 else { continue }
-                suggestions.append(suggestion(id: "\(key)#\(index + 1)", key: key, items: partSorted,
-                                              result: result, suffix: " (\(index + 1))"))
+                suggestions.append(suggestion(id: "\(key)#\(index + 1)", key: merchant, items: partSorted,
+                                              result: result, suffix: hint + " (\(index + 1))"))
+            }
             }
         }
         return suggestions.sorted { $0.amount > $1.amount }
+    }
+
+    /// Groups payments by similar amount (a new group starts at a jump of more than 25% or €5).
+    static func amountClusters(_ items: [FetchedTransaction]) -> [[FetchedTransaction]] {
+        var clusters: [[FetchedTransaction]] = []
+        for item in items.sorted(by: { $0.amount < $1.amount }) {
+            if let last = clusters.last, let previous = last.last {
+                let mean = last.reduce(0) { $0 + $1.amount } / Double(last.count)
+                if item.amount - previous.amount <= max(5, mean * 0.25) {
+                    clusters[clusters.count - 1].append(item)
+                    continue
+                }
+            }
+            clusters.append([item])
+        }
+        return clusters
+    }
+
+    /// A few words from the payment description that aren't in the payee's name, e.g. " – Hypotheek Leningdeel".
+    static func nameHint(for items: [FetchedTransaction]) -> String {
+        guard let first = items.first else { return "" }
+        let nameWords = Set(MerchantKey.tokens(first.counterparty))
+        let descriptions = Dictionary(grouping: items.map(\.details)) { $0 }.mapValues(\.count)
+        let common = descriptions.max { $0.value < $1.value }?.key ?? ""
+        let words = MerchantKey.tokens(common)
+            .filter { !nameWords.contains($0) && $0.count > 2 }
+            .prefix(3)
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+        return words.isEmpty ? "" : " – " + words.joined(separator: " ")
     }
 
     private struct Classification {
@@ -209,13 +245,30 @@ enum RecurringDetector {
     static func merchants(_ transactions: [FetchedTransaction], ownIBANs: Set<String>) -> [MerchantSummary] {
         let debits = transactions.filter { $0.isDebit && !ownIBANs.contains($0.counterpartyIBAN) }
         let groups = Dictionary(grouping: debits) { $0.merchantKey.isEmpty ? $0.counterparty : $0.merchantKey }
-        return groups.compactMap { entry -> MerchantSummary? in
-            let items = entry.value
-            guard let last = items.max(by: { $0.date < $1.date }) else { return nil }
-            return MerchantSummary(id: entry.key, name: mostCommonName(in: items), lastAmount: last.amount,
-                                   count: items.count, lastDate: last.date)
+
+        var result: [MerchantSummary] = []
+        for (key, items) in groups {
+            // Amounts that come back (2× or more) get their own line, e.g. a mortgage and an account fee
+            // from the same bank. The remaining one-off amounts stay together on one line.
+            let clusters = amountClusters(items)
+            let repeated = clusters.filter { $0.count >= 2 }
+            let oneOffs = clusters.filter { $0.count < 2 }.flatMap { $0 }
+            var parts: [[FetchedTransaction]] = repeated
+            if !oneOffs.isEmpty { parts.append(oneOffs) }
+            let splitNames = repeated.count > 1 || (repeated.count == 1 && !oneOffs.isEmpty)
+
+            for (index, part) in parts.enumerated() {
+                guard let last = part.max(by: { $0.date < $1.date }) else { continue }
+                let isRepeated = index < repeated.count
+                let name = mostCommonName(in: part) + (splitNames && isRepeated ? nameHint(for: part) : "")
+                result.append(MerchantSummary(id: "\(key)~\(index)",
+                                              name: name,
+                                              lastAmount: isRepeated ? median(part.map(\.amount)) : last.amount,
+                                              count: part.count,
+                                              lastDate: last.date))
+            }
         }
-        .sorted { $0.lastDate > $1.lastDate }
+        return result.sorted { $0.lastDate > $1.lastDate }
     }
 
     static func median(_ values: [Double]) -> Double {
