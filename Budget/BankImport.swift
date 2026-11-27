@@ -203,8 +203,32 @@ enum RecurringDetector {
         guard !intervals.isEmpty else { return nil }
         let interval = median(intervals)
 
+        let amounts = sorted.map(\.amount)
+        let typical = median(amounts)
+        guard typical > 0 else { return nil }
+        let spread = ((amounts.max() ?? typical) - (amounts.min() ?? typical)) / typical
+
+        guard let last = sorted.last else { return nil }
+        let daysSinceLast = calendar.dateComponents([.day], from: last.date, to: now).day ?? 0
+
+        // Weekly payments charged in batches, e.g. 2 × €8,99 on the same day every two weeks
+        // (or 3 × after three weeks): the number of payments matches the number of weeks.
+        let byDay = Dictionary(grouping: sorted) { calendar.startOfDay(for: $0.date) }
+        if byDay.count >= 2, byDay.values.contains(where: { $0.count >= 2 }), spread <= 0.05,
+           let firstDay = byDay.keys.min(), let lastDay = byDay.keys.max() {
+            let span = calendar.dateComponents([.day], from: firstDay, to: lastDay).day ?? 0
+            let paymentsBeforeLast = sorted.count - (byDay[lastDay]?.count ?? 0)
+            let weeks = Double(span) / 7
+            if span >= 14 && abs(Double(paymentsBeforeLast) - weeks) <= max(1, weeks * 0.2) && daysSinceLast <= 28 {
+                return Classification(frequency: .weekly, amount: (typical * 100).rounded() / 100, spread: spread)
+            }
+        }
+
         let frequency: CostFrequency
         if (6...8).contains(interval) && sorted.count >= 3 {
+            frequency = .weekly
+        } else if (6...8).contains(interval) && sorted.count == 2 && spread <= 0.05 && daysSinceLast <= 14 {
+            // A weekly payment that has only happened twice so far: same amount, one week apart, recent.
             frequency = .weekly
         } else if (25...35).contains(interval) {
             // Allow the odd skipped month (an interval of about two months).
@@ -218,14 +242,8 @@ enum RecurringDetector {
         }
 
         // Still active: the last payment isn't much longer ago than the usual interval.
-        guard let last = sorted.last else { return nil }
-        let daysSinceLast = calendar.dateComponents([.day], from: last.date, to: now).day ?? 0
         guard Double(daysSinceLast) <= interval * 1.5 + 10 else { return nil }
 
-        let amounts = sorted.map(\.amount)
-        let typical = median(amounts)
-        guard typical > 0 else { return nil }
-        let spread = ((amounts.max() ?? typical) - (amounts.min() ?? typical)) / typical
         return Classification(frequency: frequency, amount: (typical * 100).rounded() / 100, spread: spread)
     }
 
