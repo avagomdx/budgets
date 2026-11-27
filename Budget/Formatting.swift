@@ -9,7 +9,7 @@ enum AppFormat {
 
     /// Short symbol for the currency, e.g. "€" or "$".
     static var currencySymbol: String {
-        let symbol = 0.0.formatted(.currency(code: currencyCode).locale(locale))
+        let symbol = Double(0).asCurrency
             .filter { !$0.isNumber && $0 != "." && $0 != "," && !$0.isWhitespace }
         return symbol.isEmpty ? currencyCode : symbol
     }
