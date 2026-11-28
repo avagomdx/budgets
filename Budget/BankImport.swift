@@ -112,11 +112,12 @@ struct MerchantSummary: Identifiable {
 }
 
 enum RecurringDetector {
+    /// Recurring payments (or, with `incoming: true`, recurring income such as salary and allowances).
     static func detect(_ transactions: [FetchedTransaction], ownIBANs: Set<String>,
-                       now: Date = .now) -> [RecurringSuggestion] {
+                       now: Date = .now, incoming: Bool = false) -> [RecurringSuggestion] {
         let calendar = Calendar.current
-        let debits = transactions.filter { $0.isDebit && !ownIBANs.contains($0.counterpartyIBAN) }
-        let groups = Dictionary(grouping: debits) { $0.merchantKey }
+        let relevant = transactions.filter { $0.isDebit != incoming && !ownIBANs.contains($0.counterpartyIBAN) }
+        let groups = Dictionary(grouping: relevant) { $0.merchantKey }
 
         var suggestions: [RecurringSuggestion] = []
         for (merchant, merchantItems) in groups where !merchant.isEmpty && merchantItems.count >= 2 {

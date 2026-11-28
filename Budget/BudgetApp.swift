@@ -12,6 +12,7 @@ struct BudgetApp: App {
             IncomeSource.self, FixedCostTemplate.self,
             BudgetPeriod.self, IncomeEntry.self, PeriodFixedCost.self,
             BankConnection.self, BankAccountLink.self,
+            CategoryRule.self, SavingsGoal.self,
         ])
         let configuration = ModelConfiguration("BudgetV2", schema: schema)
         do {
@@ -33,8 +34,11 @@ struct BudgetApp: App {
 struct RootView: View {
     static let setupKey = "didCompleteSetupV2"
     @AppStorage(RootView.setupKey) private var didCompleteSetup = false
+    @AppStorage(AppLock.enabledKey) private var lockEnabled = false
     @Environment(\.modelContext) private var context
+    @Environment(\.scenePhase) private var scenePhase
     @State private var bankMessage: String?
+    @State private var isLocked = AppLock.isEnabled
 
     var body: some View {
         Group {
@@ -42,6 +46,18 @@ struct RootView: View {
                 MainView()
             } else {
                 SetupWizardView()
+            }
+        }
+        .overlay {
+            if isLocked && lockEnabled {
+                LockView {
+                    isLocked = false
+                }
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background && lockEnabled {
+                isLocked = true
             }
         }
         .onOpenURL { url in
@@ -64,7 +80,7 @@ struct RootView: View {
 }
 
 struct MainView: View {
-    @Environment(\.modelContext) private var context
+    @Environment(\.modelContext) var context
     @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \BudgetPeriod.startDate) private var periods: [BudgetPeriod]
     @State private var showingAdd = false
@@ -102,12 +118,24 @@ struct MainView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                PeriodManager.ensureCurrentPeriod(context: context)
+                refresh()
             }
         }
         .task {
-            PeriodManager.ensureCurrentPeriod(context: context)
             QuickActions.register()
+            refresh()
+        }
+    }
+}
+
+extension MainView {
+    /// On every app start or return: make sure the period is up to date, sync the bank, plan notifications.
+    func refresh() {
+        PeriodManager.ensureCurrentPeriod(context: context)
+        Notifications.reschedule(context: context)
+        Task {
+            await BankSync.syncIfNeeded(context: context)
+            Notifications.reschedule(context: context)
         }
     }
 }

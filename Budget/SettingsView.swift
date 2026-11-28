@@ -16,6 +16,11 @@ struct SettingsView: View {
     @AppStorage(RootView.setupKey) private var didCompleteSetup = true
 
     @State private var confirmingReset = false
+    @AppStorage(Notifications.Kind.payday.rawValue) private var notifyPayday = false
+    @AppStorage(Notifications.Kind.budget.rawValue) private var notifyBudget = false
+    @AppStorage(Notifications.Kind.weekly.rawValue) private var notifyWeekly = false
+    @AppStorage(Notifications.Kind.fixedCostChanges.rawValue) private var notifyFixedChanges = false
+    @AppStorage(AppLock.enabledKey) private var lockEnabled = false
     @State private var shareFile: ShareFile?
     @State private var importing = false
     @State private var pickedBackupURL: URL?
@@ -69,6 +74,10 @@ struct SettingsView: View {
                     Text("Every new period starts with these. To change only the current period, tap Income or Fixed costs on the Overview.")
                 }
 
+                notificationsSection
+                securitySection
+                moreSection
+
                 Section {
                     NavigationLink {
                         BankSettingsView()
@@ -115,6 +124,10 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .onChange(of: notifyPayday) { _, on in notificationsChanged(on) }
+            .onChange(of: notifyBudget) { _, on in notificationsChanged(on) }
+            .onChange(of: notifyWeekly) { _, on in notificationsChanged(on) }
+            .onChange(of: notifyFixedChanges) { _, on in notificationsChanged(on) }
             .onChange(of: paydayDay) { _, _ in applyRule() }
             .onChange(of: saturdayRaw) { _, _ in applyRule() }
             .onChange(of: sundayRaw) { _, _ in applyRule() }
@@ -165,6 +178,54 @@ struct SettingsView: View {
         }
     }
 
+    private var notificationsSection: some View {
+        Section {
+            Toggle("Payday reminder", isOn: $notifyPayday)
+            Toggle("Budget at 80% and 100%", isOn: $notifyBudget)
+            Toggle("Weekly summary (Sunday)", isOn: $notifyWeekly)
+            Toggle("Fixed cost changes", isOn: $notifyFixedChanges)
+        } header: {
+            Text("Notifications")
+        } footer: {
+            Text("The weekly summary uses your numbers from the last time you opened the app.")
+        }
+    }
+
+    private var securitySection: some View {
+        Section {
+            Toggle("Lock with Face ID", isOn: Binding(get: { lockEnabled }, set: { newValue in
+                if newValue {
+                    Task {
+                        if await AppLock.authenticate(reason: "Turn on the app lock") {
+                            lockEnabled = true
+                        }
+                    }
+                } else {
+                    lockEnabled = false
+                }
+            }))
+        } header: {
+            Text("Security")
+        } footer: {
+            Text("Asks for Face ID (or your passcode) when you open Budget.")
+        }
+    }
+
+    private var moreSection: some View {
+        Section {
+            NavigationLink {
+                GoalsView()
+            } label: {
+                Label("Savings goals", systemImage: "star")
+            }
+            NavigationLink {
+                RulesView()
+            } label: {
+                Label("Category rules", systemImage: "wand.and.stars")
+            }
+        }
+    }
+
     private var paydaySection: some View {
         Section {
             Picker("Salary arrives on day", selection: $paydayDay) {
@@ -193,6 +254,16 @@ struct SettingsView: View {
 
     private func applyRule() {
         PeriodManager.applyRuleToCurrentPeriod(context: context, rule: rule)
+        Notifications.reschedule(context: context)
+    }
+
+    private func notificationsChanged(_ turnedOn: Bool) {
+        Task {
+            if turnedOn {
+                _ = await Notifications.requestPermission()
+            }
+            Notifications.reschedule(context: context)
+        }
     }
 
     private func share(_ makeFile: () throws -> URL) {
@@ -219,7 +290,14 @@ struct SettingsView: View {
 struct CategoriesSettingsView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \BudgetCategory.sortOrder) private var categories: [BudgetCategory]
+    @Query private var expenses: [Expense]
+    @Query private var rules: [CategoryRule]
     @State private var pendingDelete: BudgetCategory?
+    @State private var autoMessage: String?
+
+    private var uncategorized: [Expense] {
+        expenses.filter { $0.category == nil }
+    }
 
     private var totalBudget: Double {
         categories.reduce(0) { $0 + $1.budget }
@@ -264,6 +342,23 @@ struct CategoriesSettingsView: View {
             } footer: {
                 Text("Total budget per period: \(totalBudget.asCurrency). Swipe left to delete, or tap Edit to reorder.")
             }
+
+            Section {
+                Button {
+                    autoCategorize()
+                } label: {
+                    Label("Auto-categorize \(uncategorized.count) expenses", systemImage: "wand.and.stars")
+                }
+                .disabled(uncategorized.isEmpty)
+            } footer: {
+                Text("Gives expenses without a category one based on the shop, e.g. Albert Heijn, Jumbo and Lidl → a category called Groceries or Boodschappen. Imported transactions get this automatically.")
+            }
+        }
+        .alert("Auto-categorize",
+               isPresented: Binding(get: { autoMessage != nil }, set: { if !$0 { autoMessage = nil } })) {
+            Button("OK", role: .cancel) { autoMessage = nil }
+        } message: {
+            Text(autoMessage ?? "")
         }
         .navigationTitle("Categories & budgets")
         .navigationBarTitleDisplayMode(.inline)
@@ -285,6 +380,22 @@ struct CategoriesSettingsView: View {
         } message: { category in
             Text("\"\(category.name)\" and all \(category.expenses?.count ?? 0) expenses in this category will be deleted. Fixed costs in this category keep existing, without a category.")
         }
+    }
+
+    private func autoCategorize() {
+        let candidates = uncategorized
+        let total = candidates.count
+        var count = 0
+        for expense in candidates {
+            if let category = AutoCategory.suggest(for: expense.note, in: categories, rules: rules) {
+                expense.category = category
+                count += 1
+            }
+        }
+        try? context.save()
+        autoMessage = count == 0
+            ? "No known shops found among \(total) expenses without a category."
+            : "\(count) of \(total) expenses got a category. The rest weren't recognized."
     }
 
     private func move(from source: IndexSet, to destination: Int) {
@@ -429,6 +540,11 @@ struct FixedCostTemplatesView: View {
                     AssignCategoriesView()
                 } label: {
                     Label("Assign categories", systemImage: "tag")
+                }
+                NavigationLink {
+                    FixedCostCheckView()
+                } label: {
+                    Label("Check with bank & yearly overview", systemImage: "checklist")
                 }
             } footer: {
                 Text("Give each fixed cost a category, to see fixed and variable costs per category.")

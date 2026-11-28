@@ -24,6 +24,9 @@ final class BudgetCategory {
     @Relationship(deleteRule: .nullify, inverse: \PeriodFixedCost.category)
     var periodFixedCosts: [PeriodFixedCost]? = []
 
+    @Relationship(deleteRule: .cascade, inverse: \CategoryRule.category)
+    var rules: [CategoryRule]? = []
+
     init(name: String, icon: String, colorName: String, budget: Double, carryOver: Bool = false, sortOrder: Int) {
         self.name = name
         self.icon = icon
@@ -47,6 +50,12 @@ final class Expense {
     var externalID: String = ""
     /// "bank" for imported expenses, empty for manual ones.
     var source: String = ""
+    /// Added by the automatic bank sync and not yet checked by you.
+    var needsReview: Bool = false
+    /// Photo of the receipt (JPEG), stored outside the database.
+    @Attribute(.externalStorage) var receiptData: Data?
+    /// Quick check for lists, so the photo itself doesn't have to be loaded.
+    var hasReceipt: Bool = false
 
     init(amount: Double, date: Date, note: String, category: BudgetCategory?) {
         self.amount = amount
@@ -260,6 +269,44 @@ final class BankAccountLink {
         if !name.isEmpty { return name }
         if !iban.isEmpty { return iban }
         return "Account"
+    }
+}
+
+// MARK: - Category rules and savings goals
+
+/// "If a payment's name contains <pattern>, use <category>."
+@Model
+final class CategoryRule {
+    /// Lowercased text to look for in the payment's name or description.
+    var pattern: String = ""
+    var createdAt: Date = Date.now
+    var category: BudgetCategory?
+
+    init(pattern: String) {
+        self.pattern = pattern.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        self.createdAt = .now
+    }
+}
+
+@Model
+final class SavingsGoal {
+    var name: String = ""
+    var targetAmount: Double = 0
+    var deadline: Date?
+    /// Money put towards the goal by hand (or moved from a period's leftover).
+    var savedAmount: Double = 0
+    /// Key of a savings fixed cost whose amounts count towards this goal (empty = none).
+    var linkedSavingsKey: String = ""
+    var createdAt: Date = Date.now
+    var icon: String = "star"
+
+    init(name: String, targetAmount: Double, deadline: Date?, savedAmount: Double, linkedSavingsKey: String) {
+        self.name = name
+        self.targetAmount = targetAmount
+        self.deadline = deadline
+        self.savedAmount = savedAmount
+        self.linkedSavingsKey = linkedSavingsKey
+        self.createdAt = .now
     }
 }
 

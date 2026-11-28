@@ -9,11 +9,17 @@ struct OverviewView: View {
     @Query(sort: \Expense.date, order: .reverse) private var expenses: [Expense]
     @Query(sort: \BudgetPeriod.startDate) private var periods: [BudgetPeriod]
     @Query private var bankConnections: [BankConnection]
+    @Query(filter: #Predicate<Expense> { $0.needsReview == true }) private var toReview: [Expense]
+    @Query(sort: \SavingsGoal.createdAt) private var goals: [SavingsGoal]
     @AppStorage("bankPromptDismissed") private var bankPromptDismissed = false
     @State private var selectedPeriodID: PersistentIdentifier?
     @State private var confirmingEarlyStart = false
     @State private var showingBankSetup = false
     @State private var showingFixedImport = false
+    @State private var showingIncomeImport = false
+    @State private var showingTrends = false
+    @State private var showingGoals = false
+    @State private var showingFixedCheck = false
     @State private var showingTransactionImport = false
 
     private var hasBankConnection: Bool {
@@ -31,6 +37,12 @@ struct OverviewView: View {
 
                 if bankConnections.isEmpty && !bankPromptDismissed {
                     bankPrompt
+                }
+
+                if !toReview.isEmpty {
+                    Section {
+                        ReviewBanner(count: toReview.count)
+                    }
                 }
 
                 if let period {
@@ -52,6 +64,24 @@ struct OverviewView: View {
                         .disabled(!canStartEarly)
 
                         Section {
+                            Button {
+                                showingTrends = true
+                            } label: {
+                                Label("Trends", systemImage: "chart.bar")
+                            }
+                            Button {
+                                showingGoals = true
+                            } label: {
+                                Label("Savings goals", systemImage: "star")
+                            }
+                            Button {
+                                showingFixedCheck = true
+                            } label: {
+                                Label("Fixed costs check", systemImage: "checklist")
+                            }
+                        }
+
+                        Section {
                             if hasBankConnection {
                                 Button {
                                     showingTransactionImport = true
@@ -62,6 +92,11 @@ struct OverviewView: View {
                                     showingFixedImport = true
                                 } label: {
                                     Label("Import fixed costs from bank", systemImage: "repeat")
+                                }
+                                Button {
+                                    showingIncomeImport = true
+                                } label: {
+                                    Label("Import income from bank", systemImage: "arrow.down.circle")
                                 }
                             }
                             Button {
@@ -95,6 +130,18 @@ struct OverviewView: View {
             }
             .navigationDestination(isPresented: $showingFixedImport) {
                 FixedCostImportView()
+            }
+            .navigationDestination(isPresented: $showingIncomeImport) {
+                IncomeImportView()
+            }
+            .navigationDestination(isPresented: $showingTrends) {
+                TrendsView()
+            }
+            .navigationDestination(isPresented: $showingGoals) {
+                GoalsView()
+            }
+            .navigationDestination(isPresented: $showingFixedCheck) {
+                FixedCostCheckView()
             }
             .navigationDestination(isPresented: $showingTransactionImport) {
                 TransactionImportView()
@@ -153,6 +200,45 @@ struct OverviewView: View {
                           amount: period.totalFixedCosts, sign: "− ")
             }
             AmountRow(title: "Spent", amount: spent, sign: "− ")
+            if period.isCurrent && bankConnections.contains(where: { $0.isValid }) {
+                NavigationLink {
+                    BalanceView()
+                } label: {
+                    Label("Compare with bank balance", systemImage: "building.columns")
+                }
+            }
+        }
+
+        let insights = Insights.categoryInsights(current: period, periods: periods, expenses: expenses,
+                                                 categories: categories)
+        if !insights.isEmpty {
+            Section {
+                ForEach(insights, id: \.self) { text in
+                    Label(text, systemImage: "lightbulb")
+                        .font(.subheadline)
+                }
+                NavigationLink {
+                    TrendsView()
+                } label: {
+                    Text("See trends")
+                }
+            } header: {
+                Text("Stands out")
+            }
+        }
+
+        if !goals.isEmpty {
+            Section {
+                ForEach(goals) { goal in
+                    NavigationLink {
+                        GoalsView()
+                    } label: {
+                        GoalRow(goal: goal, progress: GoalMath.progress(of: goal, periods: periods))
+                    }
+                }
+            } header: {
+                Text("Savings goals")
+            }
         }
 
         Section {
@@ -218,6 +304,12 @@ private struct LeftToSpendCard: View {
         period.endDate <= .now ? "Left over" : "Left to spend"
     }
 
+    private func forecastText(_ left: Double) -> String {
+        left >= 0
+            ? "At this pace you'll have about \(left.asCurrency) left at payday"
+            : "At this pace you'll be about \((-left).asCurrency) short at payday"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
@@ -237,6 +329,11 @@ private struct LeftToSpendCard: View {
                           systemImage: "calendar")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                }
+                if let forecast = Insights.forecast(period: period, spent: spent) {
+                    Label(forecastText(forecast.left), systemImage: "chart.line.uptrend.xyaxis")
+                        .font(.caption)
+                        .foregroundStyle(forecast.left < 0 ? Color.red : Color.secondary)
                 }
                 Label("Next payday: \(period.endDate.shortDayTitle)", systemImage: "banknote")
                     .font(.caption)

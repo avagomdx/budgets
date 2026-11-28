@@ -9,6 +9,19 @@ struct HistoryView: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    NavigationLink {
+                        TrendsView()
+                    } label: {
+                        Label("Trends per category", systemImage: "chart.bar")
+                    }
+                    NavigationLink {
+                        GoalsView()
+                    } label: {
+                        Label("Savings goals", systemImage: "star")
+                    }
+                }
+
                 if periods.isEmpty {
                     ContentUnavailableView("No history yet", systemImage: "clock",
                                            description: Text("Your pay periods will show up here."))

@@ -434,6 +434,8 @@ struct CheckInView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \BudgetPeriod.startDate) private var periods: [BudgetPeriod]
     @Query private var expenses: [Expense]
+    @Query(sort: \SavingsGoal.createdAt) private var goals: [SavingsGoal]
+    @State private var movedToGoalName: String?
 
     let period: BudgetPeriod
     @State private var incomeTarget: IncomeEditTarget?
@@ -467,7 +469,7 @@ struct CheckInView: View {
 
                 PeriodIncomeSections(period: period, showsExtra: false) { incomeTarget = $0 }
 
-                if previousLeftover > 0 && !hasAddedLeftover {
+                if previousLeftover > 0 && !hasAddedLeftover && movedToGoalName == nil {
                     Section {
                         Button {
                             addLeftover()
@@ -475,8 +477,28 @@ struct CheckInView: View {
                             Label("Add \(previousLeftover.asCurrency) left over from last period",
                                   systemImage: "arrow.uturn.down.circle")
                         }
+                        if !goals.isEmpty {
+                            Menu {
+                                ForEach(goals) { goal in
+                                    Button(goal.name) {
+                                        goal.savedAmount += previousLeftover
+                                        try? context.save()
+                                        movedToGoalName = goal.name
+                                    }
+                                }
+                            } label: {
+                                Label("Put \(previousLeftover.asCurrency) in a savings goal", systemImage: "star")
+                            }
+                        }
                     } footer: {
-                        Text("Optional: moves what you didn't spend last period into this one.")
+                        Text("Optional: use what you didn't spend last period in this one, or save it.")
+                    }
+                }
+
+                if let movedToGoalName {
+                    Section {
+                        Label("\(previousLeftover.asCurrency) added to \(movedToGoalName)", systemImage: "checkmark.circle")
+                            .foregroundStyle(.green)
                     }
                 }
 

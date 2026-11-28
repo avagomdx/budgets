@@ -12,6 +12,23 @@ struct BackupFile: Codable {
     var fixedCostTemplates: [FixedCostTemplateBackup]
     var periods: [PeriodBackup]
     var expenses: [ExpenseBackup]
+    var rules: [RuleBackup]?
+    var goals: [GoalBackup]?
+}
+
+struct RuleBackup: Codable {
+    var pattern: String
+    var categoryID: String?
+}
+
+struct GoalBackup: Codable {
+    var name: String
+    var targetAmount: Double
+    var deadline: Date?
+    var savedAmount: Double
+    var linkedSavingsKey: String?
+    var createdAt: Date
+    var icon: String
 }
 
 struct PaydayBackup: Codable {
@@ -84,6 +101,7 @@ struct ExpenseBackup: Codable {
     var categoryID: String?
     var externalID: String?
     var source: String?
+    var needsReview: Bool?
 }
 
 enum BackupError: LocalizedError {
@@ -167,13 +185,29 @@ enum BackupManager {
             expenseItems.append(ExpenseBackup(amount: expense.amount, date: expense.date, note: expense.note,
                                               createdAt: expense.createdAt,
                                               categoryID: categoryID(of: expense.category),
-                                              externalID: expense.externalID, source: expense.source))
+                                              externalID: expense.externalID, source: expense.source,
+                                              needsReview: expense.needsReview))
+        }
+
+        let ruleModels = (try? context.fetch(FetchDescriptor<CategoryRule>())) ?? []
+        var ruleItems: [RuleBackup] = []
+        for item in ruleModels {
+            ruleItems.append(RuleBackup(pattern: item.pattern, categoryID: categoryID(of: item.category)))
+        }
+
+        let goalModels = (try? context.fetch(FetchDescriptor<SavingsGoal>())) ?? []
+        var goalItems: [GoalBackup] = []
+        for goal in goalModels {
+            goalItems.append(GoalBackup(name: goal.name, targetAmount: goal.targetAmount, deadline: goal.deadline,
+                                        savedAmount: goal.savedAmount, linkedSavingsKey: goal.linkedSavingsKey,
+                                        createdAt: goal.createdAt, icon: goal.icon))
         }
 
         let payday = PaydayBackup(day: rule.day, saturday: rule.saturday.rawValue, sunday: rule.sunday.rawValue)
         return BackupFile(version: 1, createdAt: .now, payday: payday,
                           categories: categoryItems, incomeSources: sourceItems,
-                          fixedCostTemplates: templateItems, periods: periodItems, expenses: expenseItems)
+                          fixedCostTemplates: templateItems, periods: periodItems, expenses: expenseItems,
+                          rules: ruleItems, goals: goalItems)
     }
 
     /// Writes a backup to a temporary file and returns its URL (for the share sheet).
@@ -261,8 +295,23 @@ enum BackupManager {
             expense.createdAt = item.createdAt
             expense.externalID = item.externalID ?? ""
             expense.source = item.source ?? ""
+            expense.needsReview = item.needsReview ?? false
             context.insert(expense)
             expense.category = categoryFor(item.categoryID)
+        }
+
+        for item in backup.rules ?? [] {
+            let rule = CategoryRule(pattern: item.pattern)
+            context.insert(rule)
+            rule.category = categoryFor(item.categoryID)
+        }
+
+        for item in backup.goals ?? [] {
+            let goal = SavingsGoal(name: item.name, targetAmount: item.targetAmount, deadline: item.deadline,
+                                   savedAmount: item.savedAmount, linkedSavingsKey: item.linkedSavingsKey ?? "")
+            goal.createdAt = item.createdAt
+            goal.icon = item.icon
+            context.insert(goal)
         }
 
         try? context.save()

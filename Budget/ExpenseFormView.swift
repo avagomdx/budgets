@@ -15,6 +15,8 @@ struct ExpenseFormView: View {
     @State private var date: Date
     @State private var note: String
     @State private var selectedCategory: BudgetCategory?
+    @State private var receiptData: Data?
+    @State private var didLoadReceipt = false
     @State private var confirmDelete = false
     @FocusState private var amountFocused: Bool
 
@@ -86,6 +88,8 @@ struct ExpenseFormView: View {
                     Text("Note (optional)")
                 }
 
+                ReceiptSection(data: $receiptData)
+
                 if isEditing {
                     Section {
                         Button("Delete expense", role: .destructive) {
@@ -113,6 +117,14 @@ struct ExpenseFormView: View {
             .confirmationDialog("Delete this expense?", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) { deleteExpense() }
                 Button("Cancel", role: .cancel) {}
+            }
+            .onAppear {
+                if !didLoadReceipt {
+                    didLoadReceipt = true
+                    if let expense, expense.hasReceipt {
+                        receiptData = expense.receiptData
+                    }
+                }
             }
             .task {
                 if selectedCategory == nil {
@@ -184,10 +196,18 @@ struct ExpenseFormView: View {
             expense.date = date
             expense.note = trimmedNote
             expense.category = selectedCategory
+            expense.needsReview = false
+            expense.receiptData = receiptData
+            expense.hasReceipt = receiptData != nil
         } else {
-            context.insert(Expense(amount: amount, date: date, note: trimmedNote, category: selectedCategory))
+            let newExpense = Expense(amount: amount, date: date, note: trimmedNote, category: nil)
+            context.insert(newExpense)
+            newExpense.category = selectedCategory
+            newExpense.receiptData = receiptData
+            newExpense.hasReceipt = receiptData != nil
         }
         try? context.save()
+        Notifications.checkBudgets(context: context)
         lastCategoryName = selectedCategory.name
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         dismiss()

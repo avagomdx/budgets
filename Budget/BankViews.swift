@@ -152,6 +152,7 @@ struct BankSetupSections: View {
 
 struct BankSettingsView: View {
     @Query private var connections: [BankConnection]
+    @AppStorage(BankSync.autoSyncKey) private var autoSync = true
 
     private var hasValidConnection: Bool {
         connections.contains { $0.isValid }
@@ -162,10 +163,21 @@ struct BankSettingsView: View {
             BankSetupSections()
 
             Section {
+                Toggle("Sync when opening the app", isOn: $autoSync)
+            } footer: {
+                Text("New payments are added as expenses with a category, in a \"To check\" list. Transfers between your own accounts and fixed costs are skipped. You can also pull down on Expenses to sync.")
+            }
+
+            Section {
                 NavigationLink {
                     FixedCostImportView()
                 } label: {
                     Label("Import fixed costs", systemImage: "repeat")
+                }
+                NavigationLink {
+                    IncomeImportView()
+                } label: {
+                    Label("Import income", systemImage: "arrow.down.circle")
                 }
                 NavigationLink {
                     TransactionImportView()
@@ -175,7 +187,7 @@ struct BankSettingsView: View {
             } header: {
                 Text("Step 3 · Import")
             } footer: {
-                Text("Fixed costs: finds recurring payments in the last six months. Transactions: adds your payments as expenses after you've reviewed them. You can also start both from the ⋯ menu on the Overview.")
+                Text("Fixed costs and income: finds recurring payments and income in the last six months. Transactions: adds your payments as expenses after you've reviewed them, with categories filled in for well-known shops. You can also start these from the ⋯ menu on the Overview.")
             }
             .disabled(!hasValidConnection)
         }
@@ -510,7 +522,7 @@ struct FixedCostImportView: View {
                                           name: suggestion.name,
                                           amountText: suggestion.amount.editableAmount,
                                           frequency: suggestion.frequency,
-                                          category: nil,
+                                          category: isWizard ? nil : AutoCategory.suggest(for: suggestion.name, in: categories),
                                           isSavings: false,
                                           anchorDate: suggestion.lastDate,
                                           info: info,
@@ -717,6 +729,8 @@ struct TransactionImportView: View {
     @Query(sort: \FixedCostTemplate.sortOrder) private var templates: [FixedCostTemplate]
     @Query(sort: \BudgetPeriod.startDate) private var periods: [BudgetPeriod]
     @Query private var expenses: [Expense]
+    @Query private var incomeSources: [IncomeSource]
+    @Query private var rules: [CategoryRule]
 
     private struct Row: Identifiable {
         let transaction: FetchedTransaction
@@ -884,6 +898,9 @@ struct TransactionImportView: View {
 
             let fixedKeys = Set(templates.map { MerchantKey.make($0.name) })
                 .union(RecurringDetector.detect(fetched.transactions, ownIBANs: fetched.ownIBANs).map(\.merchantKey))
+            let incomeKeys = Set(incomeSources.map { MerchantKey.make($0.name) })
+                .union(RecurringDetector.detect(fetched.transactions, ownIBANs: fetched.ownIBANs, incoming: true)
+                    .map(\.merchantKey))
 
             var newRows: [Row] = []
             var duplicates = 0
@@ -894,15 +911,23 @@ struct TransactionImportView: View {
                 }
                 let isOwnTransfer = fetched.ownIBANs.contains(transaction.counterpartyIBAN)
                 let looksFixed = transaction.isDebit && fixedKeys.contains(transaction.merchantKey)
+                let looksLikeIncome = !transaction.isDebit && incomeKeys.contains(transaction.merchantKey)
                 var note: String?
                 if isOwnTransfer {
                     note = "Transfer between your own accounts"
                 } else if looksFixed {
                     note = "Looks like a fixed cost"
+                } else if looksLikeIncome {
+                    note = "Regular income, already counted in your period's income"
                 }
+                let category = transaction.isDebit
+                    ? (remembered[transaction.merchantKey]
+                        ?? AutoCategory.suggest(for: transaction.counterparty + " " + transaction.details,
+                                                in: categories, rules: rules))
+                    : nil
                 newRows.append(Row(transaction: transaction,
-                                   include: !isOwnTransfer && !looksFixed,
-                                   category: remembered[transaction.merchantKey],
+                                   include: !isOwnTransfer && !looksFixed && !looksLikeIncome,
+                                   category: category,
                                    note: note))
             }
             rows = newRows
@@ -941,5 +966,240 @@ struct TransactionImportView: View {
             text += " and \(incomeCount) extra income \(incomeCount == 1 ? "entry" : "entries")"
         }
         resultMessage = text + "."
+    }
+}
+
+// MARK: - Import: recurring income
+
+struct IncomeImportRow: Identifiable {
+    let id: String
+    var include: Bool
+    var name: String
+    var amountText: String
+    let info: String
+    let warning: Bool
+    let alreadyExists: Bool
+
+    var isValid: Bool {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && amountText.parsedAmount != nil
+    }
+}
+
+struct IncomeImportView: View {
+    /// Set by the setup wizard: selected items are handed back as drafts instead of being saved.
+    var onAddDrafts: (([DraftIncome]) -> Void)? = nil
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var context
+    @Query(sort: \IncomeSource.sortOrder) private var sources: [IncomeSource]
+    @Query(sort: \BudgetPeriod.startDate) private var periods: [BudgetPeriod]
+
+    @State private var rows: [IncomeImportRow] = []
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+    @State private var addToCurrentPeriod = true
+    @State private var resultMessage: String?
+
+    private var isWizard: Bool { onAddDrafts != nil }
+
+    private var selectedCount: Int {
+        rows.filter { $0.include && $0.isValid }.count
+    }
+
+    private var addButtonTitle: String {
+        selectedCount == 1 ? "Add 1 income" : "Add \(selectedCount) incomes"
+    }
+
+    var body: some View {
+        let newIndices = rows.indices.filter { !rows[$0].alreadyExists }
+        let existingIndices = rows.indices.filter { rows[$0].alreadyExists }
+
+        List {
+            if isLoading {
+                HStack {
+                    ProgressView()
+                    Text("Looking for regular income…").foregroundStyle(.secondary)
+                }
+            } else if let errorMessage {
+                Text(errorMessage).foregroundStyle(.red)
+            } else {
+                Section {
+                    Text("Tick the income you get every period, like your salary or allowances. Amounts are per period; you can change them.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    if newIndices.isEmpty {
+                        Text("No new regular income found.")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(newIndices, id: \.self) { index in
+                        IncomeImportRowView(row: $rows[index])
+                    }
+                } header: {
+                    Text("Found (\(newIndices.count))")
+                }
+
+                if !existingIndices.isEmpty {
+                    Section {
+                        ForEach(existingIndices, id: \.self) { index in
+                            IncomeImportRowView(row: $rows[index])
+                        }
+                    } header: {
+                        Text("Already in your income")
+                    }
+                }
+
+                if !isWizard {
+                    Section {
+                        Toggle("Also add them to the current period", isOn: $addToCurrentPeriod)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Import income")
+        .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom) {
+            if !rows.isEmpty {
+                Button {
+                    addSelected()
+                } label: {
+                    Text(addButtonTitle)
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(selectedCount == 0)
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+            }
+        }
+        .task {
+            await load()
+        }
+        .alert("Income added",
+               isPresented: Binding(get: { resultMessage != nil }, set: { if !$0 { resultMessage = nil } })) {
+            Button("OK") {
+                resultMessage = nil
+                dismiss()
+            }
+        } message: {
+            Text(resultMessage ?? "")
+        }
+    }
+
+    private func load() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let from = Calendar.current.date(byAdding: .day, value: -185, to: .now) ?? .now
+            let fetched = try await BankLink.fetchTransactions(context: context, from: from)
+            let suggestions = RecurringDetector.detect(fetched.transactions, ownIBANs: fetched.ownIBANs,
+                                                       incoming: true)
+            rows = suggestions.map { suggestion in
+                let perPeriod = FixedCostSpec(amount: suggestion.amount, frequency: suggestion.frequency,
+                                              mode: .spread, anchorDate: suggestion.lastDate).averagePerPeriod
+                let exists = alreadyExists(name: suggestion.name, key: suggestion.merchantKey, amount: perPeriod)
+                var info = "\(suggestion.frequency.title) · \(suggestion.count)× in 6 months · last \(suggestion.lastDate.formatted(.dateTime.day().month(.abbreviated)))"
+                if suggestion.frequency != .monthly {
+                    info += " · \(suggestion.amount.asCurrency) each time"
+                }
+                if suggestion.amountVaries {
+                    info += " · amount varies, typical amount shown"
+                }
+                return IncomeImportRow(id: suggestion.id,
+                                       include: !exists,
+                                       name: suggestion.name,
+                                       amountText: perPeriod.editableAmount,
+                                       info: info,
+                                       warning: suggestion.amountVaries,
+                                       alreadyExists: exists)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func alreadyExists(name: String, key: String, amount: Double) -> Bool {
+        if isWizard { return false }
+        return sources.contains { source in
+            if source.name.localizedCaseInsensitiveCompare(name) == .orderedSame { return true }
+            guard MerchantKey.make(source.name) == key else { return false }
+            return abs(source.amount - amount) <= max(2, amount * 0.25)
+        }
+    }
+
+    private func addSelected() {
+        let chosen = rows.filter { $0.include && $0.isValid }
+
+        if let onAddDrafts {
+            onAddDrafts(chosen.map {
+                DraftIncome(name: $0.name.trimmingCharacters(in: .whitespacesAndNewlines), amountText: $0.amountText)
+            })
+            dismiss()
+            return
+        }
+
+        var order = (sources.map(\.sortOrder).max() ?? -1) + 1
+        var added: [IncomeSource] = []
+        for row in chosen {
+            let source = IncomeSource(name: row.name.trimmingCharacters(in: .whitespacesAndNewlines),
+                                      amount: row.amountText.parsedAmount ?? 0, sortOrder: order)
+            context.insert(source)
+            added.append(source)
+            order += 1
+        }
+
+        var periodNote = ""
+        if addToCurrentPeriod, let current = periods.last(where: { $0.isCurrent }) {
+            let entryOrder = ((current.incomes ?? []).map(\.sortOrder).max() ?? -1) + 1
+            for (offset, source) in added.enumerated() {
+                let entry = IncomeEntry(name: source.name, amount: source.amount, isExtra: false,
+                                        date: current.startDate, sortOrder: entryOrder + offset, sourceKey: source.key)
+                context.insert(entry)
+                entry.period = current
+            }
+            if !added.isEmpty {
+                periodNote = " They were also added to the current period."
+            }
+        }
+        try? context.save()
+        resultMessage = "Added \(added.count) \(added.count == 1 ? "income" : "incomes") to your defaults." + periodNote
+    }
+}
+
+struct IncomeImportRowView: View {
+    @Binding var row: IncomeImportRow
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Button {
+                row.include.toggle()
+            } label: {
+                Image(systemName: row.include ? "checkmark.circle.fill" : "circle")
+                    .font(.title2)
+                    .foregroundStyle(row.include ? Color.accentColor : Color.secondary)
+            }
+            .buttonStyle(.borderless)
+
+            VStack(alignment: .leading, spacing: 8) {
+                TextField("Name", text: $row.name)
+                    .font(.headline)
+                AmountField(placeholder: "0.00", text: $row.amountText)
+                    .frame(width: 140)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color(uiColor: .tertiarySystemFill),
+                                in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Text(row.info)
+                    .font(.caption)
+                    .foregroundStyle(row.warning ? Color.orange : Color.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+        .opacity(row.include ? 1 : 0.7)
     }
 }

@@ -71,6 +71,7 @@ struct SetupWizardView: View {
     @State private var editingCostID: UUID?
     @State private var showingOverBudgetAlert = false
     @State private var showingBankImport = false
+    @State private var showingIncomeImport = false
 
     private var hasBankConnection: Bool {
         bankConnections.contains { $0.isValid }
@@ -126,6 +127,22 @@ struct SetupWizardView: View {
                 .sheet(isPresented: Binding(get: { editingCostID != nil },
                                             set: { if !$0 { editingCostID = nil } })) {
                     costSheet
+                }
+                .sheet(isPresented: $showingIncomeImport) {
+                    NavigationStack {
+                        IncomeImportView { drafts in
+                            // Replace empty placeholders (like "Salary" without an amount) with what the bank found.
+                            if !drafts.isEmpty {
+                                incomes.removeAll { $0.amountText.trimmingCharacters(in: .whitespaces).isEmpty }
+                            }
+                            incomes.append(contentsOf: drafts)
+                        }
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Cancel") { showingIncomeImport = false }
+                            }
+                        }
+                    }
                 }
                 .sheet(isPresented: $showingBankImport) {
                     NavigationStack {
@@ -284,6 +301,18 @@ struct SetupWizardView: View {
 
     private var incomeStep: some View {
         Form {
+            if hasBankConnection {
+                Section {
+                    Button {
+                        showingIncomeImport = true
+                    } label: {
+                        Label("Import from your bank", systemImage: "building.columns")
+                    }
+                } footer: {
+                    Text("Finds your salary and other regular income in the last six months.")
+                }
+            }
+
             Section {
                 ForEach($incomes) { $income in
                     HStack {

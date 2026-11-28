@@ -112,6 +112,8 @@ enum PeriodManager {
         for item in (try? context.fetch(FetchDescriptor<IncomeEntry>())) ?? [] { context.delete(item) }
         for item in (try? context.fetch(FetchDescriptor<PeriodFixedCost>())) ?? [] { context.delete(item) }
         for item in (try? context.fetch(FetchDescriptor<BudgetPeriod>())) ?? [] { context.delete(item) }
+        for item in (try? context.fetch(FetchDescriptor<CategoryRule>())) ?? [] { context.delete(item) }
+        for item in (try? context.fetch(FetchDescriptor<SavingsGoal>())) ?? [] { context.delete(item) }
         for item in (try? context.fetch(FetchDescriptor<BudgetCategory>())) ?? [] { context.delete(item) }
         for item in (try? context.fetch(FetchDescriptor<IncomeSource>())) ?? [] { context.delete(item) }
         for item in (try? context.fetch(FetchDescriptor<FixedCostTemplate>())) ?? [] { context.delete(item) }

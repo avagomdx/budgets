@@ -327,6 +327,16 @@ struct BankTransaction: Decodable {
     let remittanceInformation: [String]?
 }
 
+struct BankBalance: Decodable {
+    let balanceAmount: BankTransaction.Money?
+    let balanceType: String?
+    let name: String?
+}
+
+private struct BalancesResponse: Decodable {
+    let balances: [BankBalance]?
+}
+
 private struct TransactionsResponse: Decodable {
     let transactions: [BankTransaction]?
     let continuationKey: String?
@@ -414,6 +424,19 @@ struct EnableBankingClient {
     func createSession(code: String) async throws -> SessionResponse {
         let body = try Self.encoder.encode(SessionRequest(code: code))
         return try await send("POST", path: "sessions", body: body, as: SessionResponse.self)
+    }
+
+    /// The most useful balance of an account: available first, then booked/closing.
+    func balance(accountUID: String) async throws -> BankTransaction.Money? {
+        let response = try await send("GET", path: "accounts/\(accountUID)/balances", as: BalancesResponse.self)
+        let balances = response.balances ?? []
+        let preferred = ["ITAV", "CLAV", "XPCD", "ITBD", "CLBD", "OPBD", "PRCD"]
+        for type in preferred {
+            if let match = balances.first(where: { $0.balanceType?.uppercased() == type }) {
+                return match.balanceAmount
+            }
+        }
+        return balances.first?.balanceAmount
     }
 
     /// All booked transactions since `from`, following pagination.

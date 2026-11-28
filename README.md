@@ -17,6 +17,10 @@ A simple personal iOS app for budgeting from payday to payday.
 - Quick expense entry: the amount field opens right away, the last-used category is preselected, and the date defaults to today
 - Home Screen quick action: long-press the app icon → **New expense**
 - Bank import via Enable Banking (e.g. ABN AMRO, Revolut): detect recurring payments as fixed costs, or import all transactions after review
+- Automatic bank sync with a "To check" list, learned category rules and built-in shop categories
+- Notifications: payday, budget at 80%/100%, weekly summary, fixed cost changes
+- End-of-period forecast, trends per category, fixed cost check with yearly overview, bank balance check
+- Savings goals, Face ID lock, receipt photos, Siri & Shortcuts ("Add an expense in Budget")
 - Backup & restore, CSV export
 - All data is stored on the device with SwiftData. There's no account or server.
 

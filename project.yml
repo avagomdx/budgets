@@ -24,6 +24,8 @@ targets:
       properties:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSFaceIDUsageDescription: Unlock Budget with Face ID.
+        NSCameraUsageDescription: Take a photo of a receipt to keep with an expense.
         CFBundleURLTypes:
           - CFBundleURLName: com.anthony.budget.callback
             CFBundleURLSchemes:

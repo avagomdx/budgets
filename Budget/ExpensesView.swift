@@ -12,6 +12,7 @@ struct ExpensesView: View {
     @State private var searchText = ""
     @State private var showingImport = false
     @Query private var bankConnections: [BankConnection]
+    @Query(filter: #Predicate<Expense> { $0.needsReview == true }) private var toReview: [Expense]
 
     private struct DayGroup: Identifiable {
         let day: Date
@@ -55,6 +56,12 @@ struct ExpensesView: View {
                     PeriodSwitcher(periods: periods, selectedID: $selectedPeriodID)
                 }
 
+                if !toReview.isEmpty {
+                    Section {
+                        ReviewBanner(count: toReview.count)
+                    }
+                }
+
                 if dayGroups.isEmpty {
                     ContentUnavailableView(
                         emptyTitle,
@@ -90,6 +97,9 @@ struct ExpensesView: View {
                 }
             }
             .navigationTitle("Expenses")
+            .refreshable {
+                await BankSync.syncIfNeeded(context: context, force: true)
+            }
             .toolbar {
                 if bankConnections.contains(where: { $0.isValid }) {
                     ToolbarItem(placement: .primaryAction) {

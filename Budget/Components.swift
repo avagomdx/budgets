@@ -176,6 +176,17 @@ struct ExpenseRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            if expense.hasReceipt {
+                Image(systemName: "paperclip")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if expense.needsReview {
+                Circle()
+                    .fill(Color.orange)
+                    .frame(width: 8, height: 8)
+                    .accessibilityLabel("To check")
+            }
             Text(expense.amount.asCurrency)
                 .monospacedDigit()
                 .fontWeight(.medium)
