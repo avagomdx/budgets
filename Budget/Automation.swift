@@ -270,6 +270,7 @@ enum Notifications {
 
 // MARK: - Forecast, trends and insights
 
+@MainActor
 enum Insights {
     /// Where you'll end up if you keep spending at the current pace. Nil early in the period.
     static func forecast(period: BudgetPeriod, spent: Double) -> (spent: Double, left: Double)? {
